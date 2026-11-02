@@ -6,7 +6,9 @@ a rigid template or write machine-readable IDs.
 
 ## Workflow
 
-1. Select an image and create a new import draft, leaving the current document intact.
+1. Select an image, or capture a still from a connected camera via the planned
+   local command described in `camera-capture.md`, and create a new import draft,
+   leaving the current document intact.
 2. Transcribe visible labels, underlined place headings, contained affordances,
    arrow endpoints and direction, and explicit annotations.
 3. Assign stable IDs and produce a schema-valid candidate model containing the

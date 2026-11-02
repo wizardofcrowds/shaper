@@ -8,6 +8,10 @@ nodes:
       publish:
         kind: action
         label: Publish
+        connections:
+          request_publish:
+            to: publishing.publish
+            kind: invoke
   publishing:
     kind: component
     label: Publishing service
@@ -18,6 +22,11 @@ nodes:
       published:
         kind: event
         label: Document published
+        connections:
+          deliver_published_event:
+            to: search.index
+            kind: emit
+            label: Document published event delivery
   search:
     kind: component
     label: Search indexer
@@ -25,16 +34,7 @@ nodes:
       index:
         kind: capability
         label: Index published version
-connections:
-  request_publish:
-    from: editor.publish
-    to: publishing.publish
-    kind: invoke
-  deliver_published_event:
-    from: publishing.published
-    to: search.index
-    kind: emit
-    label: Document published event delivery
 metadata:
   illustrative: true
-  note: Internal ordering, state, and completion behavior are deliberately unspecified.
+  note: Internal ordering, state, and completion behavior are deliberately
+    unspecified.

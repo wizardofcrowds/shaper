@@ -1,0 +1,29 @@
+#!/bin/sh
+set -eu
+
+shaper_directory=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+shaper_bundled_node="${HOME}/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node"
+
+if [ -n "${SHAPER_NODE:-}" ]; then
+  shaper_node=$SHAPER_NODE
+elif command -v node >/dev/null 2>&1; then
+  shaper_node=$(command -v node)
+elif [ -x "$shaper_bundled_node" ]; then
+  shaper_node=$shaper_bundled_node
+else
+  echo 'Node.js was not found. Install Node 22.18+ or set SHAPER_NODE to a Node executable.' >&2
+  exit 1
+fi
+
+if [ ! -x "$shaper_node" ]; then
+  echo "Node executable is not available: $shaper_node" >&2
+  exit 1
+fi
+
+if [ ! -f "$shaper_directory/node_modules/vite/bin/vite.js" ]; then
+  echo 'Dependencies are missing. Install Node 22.18+ and pnpm, then run pnpm install.' >&2
+  exit 1
+fi
+
+cd "$shaper_directory"
+exec "$shaper_node" "$shaper_directory/node_modules/vite/bin/vite.js" --host 127.0.0.1 "$@"
