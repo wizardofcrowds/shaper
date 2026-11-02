@@ -1,0 +1,40 @@
+version: "0.1"
+title: Publishing — illustrative component interaction
+nodes:
+  editor:
+    kind: place
+    label: Editor
+    affordances:
+      publish:
+        kind: action
+        label: Publish
+  publishing:
+    kind: component
+    label: Publishing service
+    affordances:
+      publish:
+        kind: capability
+        label: Publish document
+      published:
+        kind: event
+        label: Document published
+  search:
+    kind: component
+    label: Search indexer
+    affordances:
+      index:
+        kind: capability
+        label: Index published version
+connections:
+  request_publish:
+    from: editor.publish
+    to: publishing.publish
+    kind: invoke
+  deliver_published_event:
+    from: publishing.published
+    to: search.index
+    kind: emit
+    label: Document published event delivery
+metadata:
+  illustrative: true
+  note: Internal ordering, state, and completion behavior are deliberately unspecified.

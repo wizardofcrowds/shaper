@@ -1,0 +1,49 @@
+version: "0.1"
+title: Two paths from Home — placeholder example
+nodes:
+  home:
+    kind: place
+    label: Home
+    affordances:
+      path_one:
+        kind: action
+        label: First path — replace with actual copy
+      path_two:
+        kind: action
+        label: Second path — replace with actual copy
+  path_one:
+    kind: place
+    label: First destination — to be shaped
+    affordances: {}
+  path_two:
+    kind: place
+    label: Second destination — to be shaped
+    affordances: {}
+connections:
+  first_path:
+    from: home.path_one
+    to: path_one
+    kind: navigate
+  second_path:
+    from: home.path_two
+    to: path_two
+    kind: navigate
+scenarios:
+  - id: take_first_path
+    goal: Placeholder — describe why someone takes the first path.
+    start: home
+    steps: [home.path_one]
+    end: path_one
+  - id: take_second_path
+    goal: Placeholder — describe why someone takes the second path.
+    start: home
+    steps: [home.path_two]
+    end: path_two
+layout:
+  nodes:
+    home: {x: 0, y: 0}
+    path_one: {x: 360, y: -140}
+    path_two: {x: 360, y: 180}
+metadata:
+  illustrative: true
+  note: This is not an agreed design for Hover.

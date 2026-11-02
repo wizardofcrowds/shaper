@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Breadboard 0.1 (experimental)",
+  "type": "object",
+  "required": ["version", "title", "nodes", "connections"],
+  "additionalProperties": false,
+  "properties": {
+    "version": {"const": "0.1"},
+    "title": {"type": "string", "minLength": 1},
+    "nodes": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {"$ref": "#/$defs/id"},
+      "additionalProperties": {"$ref": "#/$defs/node"}
+    },
+    "connections": {
+      "type": "object",
+      "propertyNames": {"$ref": "#/$defs/id"},
+      "additionalProperties": {"$ref": "#/$defs/connection"}
+    },
+    "scenarios": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/scenario"}
+    },
+    "layout": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "nodes": {
+          "type": "object",
+          "propertyNames": {"$ref": "#/$defs/id"},
+          "additionalProperties": {
+            "type": "object",
+            "required": ["x", "y"],
+            "additionalProperties": false,
+            "properties": {
+              "x": {"type": "number"},
+              "y": {"type": "number"}
+            }
+          }
+        }
+      }
+    },
+    "metadata": {"type": "object"}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_-]*$"},
+    "affordanceRef": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]*\\.[a-z][a-z0-9_-]*$"
+    },
+    "targetRef": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]*(\\.[a-z][a-z0-9_-]*)?$"
+    },
+    "affordance": {
+      "type": "object",
+      "required": ["kind", "label"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {"enum": ["action", "input", "copy", "capability", "event"]},
+        "label": {"type": "string", "minLength": 1},
+        "metadata": {"type": "object"}
+      }
+    },
+    "node": {
+      "type": "object",
+      "required": ["kind", "label", "affordances"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {"enum": ["place", "component"]},
+        "label": {"type": "string", "minLength": 1},
+        "affordances": {
+          "type": "object",
+          "propertyNames": {"$ref": "#/$defs/id"},
+          "additionalProperties": {"$ref": "#/$defs/affordance"}
+        },
+        "metadata": {"type": "object"}
+      }
+    },
+    "connection": {
+      "type": "object",
+      "required": ["from", "to", "kind"],
+      "additionalProperties": false,
+      "properties": {
+        "from": {"$ref": "#/$defs/affordanceRef"},
+        "to": {"$ref": "#/$defs/targetRef"},
+        "kind": {"enum": ["navigate", "invoke", "emit", "read", "write"]},
+        "label": {"type": "string"},
+        "metadata": {"type": "object"}
+      }
+    },
+    "scenario": {
+      "type": "object",
+      "required": ["id", "goal", "start", "steps", "end"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "goal": {"type": "string", "minLength": 1},
+        "start": {"$ref": "#/$defs/id"},
+        "steps": {"type": "array", "items": {"$ref": "#/$defs/affordanceRef"}},
+        "end": {"$ref": "#/$defs/id"},
+        "metadata": {"type": "object"}
+      }
+    }
+  }
+}
