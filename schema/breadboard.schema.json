@@ -13,6 +13,19 @@
       "propertyNames": {"$ref": "#/$defs/id"},
       "additionalProperties": {"$ref": "#/$defs/node"}
     },
+    "slices": {
+      "type": "object",
+      "propertyNames": {"$ref": "#/$defs/id"},
+      "additionalProperties": {
+        "type": "object",
+        "required": ["label"],
+        "additionalProperties": false,
+        "properties": {
+          "label": {"type": "string", "minLength": 1},
+          "metadata": {"type": "object"}
+        }
+      }
+    },
     "scenarios": {
       "type": "array",
       "items": {"$ref": "#/$defs/scenario"}
@@ -21,6 +34,20 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "slices": {
+          "type": "object",
+          "propertyNames": {"$ref": "#/$defs/id"},
+          "additionalProperties": {
+            "type": "object",
+            "required": ["x", "y", "w", "h"],
+            "additionalProperties": false,
+            "properties": {
+              "x": {"type": "number"}, "y": {"type": "number"},
+              "w": {"type": "number", "minimum": 360},
+              "h": {"type": "number", "minimum": 220}
+            }
+          }
+        },
         "nodes": {
           "type": "object",
           "propertyNames": {"$ref": "#/$defs/id"},
@@ -69,7 +96,9 @@
       "additionalProperties": false,
       "properties": {
         "kind": {"enum": ["place", "component"]},
+        "slice": {"$ref": "#/$defs/id"},
         "label": {"type": "string", "minLength": 1},
+        "color": {"enum": ["slate", "gray", "brown", "red", "orange", "amber", "yellow", "lime", "green", "emerald", "teal", "cyan", "blue", "indigo", "violet", "pink"]},
         "affordances": {
           "type": "object",
           "propertyNames": {"$ref": "#/$defs/id"},

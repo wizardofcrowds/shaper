@@ -7,6 +7,8 @@ reference and scenario checks; JSON Schema alone cannot validate graph topology.
 ## Semantic elements
 
 - `nodes`: a mapping of stable IDs to places or components.
+- `slices`: an optional mapping of IDs to named groups of whole places/components.
+  A node’s optional `slice` field assigns it to one group; omission means unassigned.
 - `affordances`: named things available at a node. Kinds are `action`, `input`,
   `copy`, `capability`, and `event`.
 - Each affordance may have a `connections` mapping of local IDs to directed
@@ -72,7 +74,42 @@ Changing a connection's source in the inspector moves its record to the new owne
 Its local ID is retained unless already used there; then a numeric suffix avoids
 overwriting another path. All connection fields, including metadata, are retained.
 
+## Slices
+
+A slice is a named canvas region grouping whole places and components. A node
+has at most one `slice` ID. Its affordances and connections remain on the node;
+connections still target nodes or affordances, never slices. Unknown slice IDs
+are graph findings rather than a reason to reject a work-in-progress file.
+
+```yaml
+slices:
+  prepare:
+    label: A host can prepare for an exploration
+# On a place or component in nodes:
+#   slice: prepare
+layout:
+  slices:
+    prepare: {x: 0, y: 0, w: 640, h: 420}
+```
+
+Each slice requires a nonempty `label` and may have `metadata`. `layout.slices`
+stores region bounds keyed by slice ID; widths are at least 360 and heights at
+least 220. Missing bounds are materialized by the editor around assigned members
+or at a deterministic initial position. Existing documents without slices remain
+valid, and the experimental version stays `0.1`.
+
+Slice assignment does not change connection identity or express implementation
+order. Deleting a slice unassigns its members and retains nodes, positions,
+connections, and scenarios. See [slice behavior](slices.md) for canvas interactions.
+
 ## Presentation and extensions
+
+Each node may have a `color` chosen from the 16-color palette: `slate`, `gray`,
+`brown`, `red`, `orange`, `amber`, `yellow`, `lime`, `green`, `emerald`, `teal`,
+`cyan`, `blue`, `indigo`, `violet`, or `pink`. For example, `color: blue` on a
+place or component adds a light tint and a matching heading/underline. Omitting
+`color` preserves the default appearance. Colors do not affect graph or scenario
+meaning; they survive editing and saving like other node fields.
 
 `layout.nodes` stores optional x/y positions keyed by node ID. Missing positions
 receive an initial automatic arrangement. Semantic checks ignore positions.

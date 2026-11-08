@@ -1,3 +1,6 @@
+import type { NodeColor } from './colors.ts';
+export type { NodeColor } from './colors.ts';
+
 /** JSON-compatible extension data; JavaScript-only values are not serializable. */
 export type JsonValue = null | boolean | number | string | JsonValue[] | {
   [key: string]: JsonValue;
@@ -15,10 +18,18 @@ export interface Affordance {
 export interface BreadboardNode {
   kind: 'place' | 'component';
   label: string;
+  color?: NodeColor;
+  slice?: string;
   affordances: Record<string, Affordance>;
   affordance_order?: string[];
   metadata?: Metadata;
 }
+
+export interface BreadboardSlice {
+  label: string;
+  metadata?: Metadata;
+}
+export interface SliceBounds { x: number; y: number; w: number; h: number }
 
 export interface Connection {
   to: string;
@@ -41,7 +52,8 @@ export interface Breadboard {
   version: '0.1';
   title: string;
   nodes: Record<string, BreadboardNode>;
+  slices?: Record<string, BreadboardSlice>;
   scenarios?: Scenario[];
-  layout?: { nodes?: Record<string, { x: number; y: number }> };
+  layout?: { nodes?: Record<string, { x: number; y: number }>; slices?: Record<string, SliceBounds> };
   metadata?: Metadata;
 }

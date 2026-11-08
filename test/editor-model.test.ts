@@ -39,12 +39,14 @@ test('renaming and reordering rows never changes connection identity', () => {
 test('moving an affordance changes row geometry and persists order without rewiring paths', () => {
   const model = fresh();
   model.nodes.home!.affordances.path_one!.metadata = { requirement: 'R1' };
+  model.nodes.home!.color = 'blue';
   const before = structuredClone(model);
   const previousEdge = edgeGeometry(model).find(edge => edge.id === 'home.path_one.first_path')!;
   const reordered = moveAffordance(model, 'home', 'path_one', 1);
   assert.deepEqual(affordanceIds(reordered.nodes.home!), ['path_two', 'path_one']);
   assert.deepEqual(connections(reordered), connections(model));
   assert.deepEqual(reordered.scenarios, model.scenarios);
+  assert.equal(reordered.nodes.home!.color, 'blue');
   assert.deepEqual(reordered.nodes.home!.affordances.path_one!.metadata, { requirement: 'R1' });
   const movedEdge = edgeGeometry(reordered).find(edge => edge.id === 'home.path_one.first_path')!;
   assert.equal(movedEdge.y + movedEdge.sy, previousEdge.y + previousEdge.sy + 48);

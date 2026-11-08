@@ -35,23 +35,41 @@ Node executable. After dependencies are installed, `./dev` does not require a
 global pnpm installation. `pnpm dev` is also available.
 
 Open the printed localhost URL. Start from the included two-path example, choose
-New, or open a `.breadboard.yaml` file. Select headings and affordances to edit
+New, or open a `.yaml` or `.yml` breadboard file. Select headings and affordances to edit
 them, drag headings to move places, and use an affordance's + port to connect it
 to a heading or another affordance. Existing paths can be reconnected in the
-Connections panel or edit outgoing paths directly in the affordance inspector.
+Connections panel. You can also edit outgoing paths in the affordance inspector.
+Use Slice to add a named region, then drag places/components into it to group
+them. The inspector also supports assigning/unassigning nodes and inspecting
+connections across a slice boundary. Slices and membership are saved in YAML.
 Connections are nested under source affordances in YAML; the previous top-level
-format is no longer accepted. Save YAML downloads the complete document, including hidden
-metadata and scenarios. Files are processed in the browser; no backend is needed.
+format is no longer accepted.
+
+Open selects a local YAML file. Save writes back to the opened file; for a new
+breadboard it asks for a folder and filename. Save As, beside Save, always lets
+you choose a destination and makes it the file used by subsequent saves. Replacing
+an existing file through Save As requires confirmation. The complete document,
+including metadata, scenarios, and layout, is saved. A file changed by another
+app is reported as a conflict rather than silently overwritten.
+
+The folder/filename dialog uses a local file service in Shaper's Vite server,
+so it works in the in-app browser without browser-specific filesystem APIs.
+Keep `./dev` running while using it; a separately hosted static build cannot
+open or save computer files through this service. `pnpm preview` also includes
+the local service for previewing a production build. Nothing is sent to a hosted
+backend. ⌘S/Ctrl+S saves; ⇧⌘S/Ctrl+Shift+S opens Save As.
 
 Run `pnpm typecheck`, `pnpm test`, and `pnpm build` for verification.
 
 - [Format](docs/format.md) and [JSON Schema](schema/breadboard.schema.json)
 - [YAML API and development](docs/yaml-api.md)
 - [Editor design and first milestone](docs/editor.md)
+- [Named outcome-oriented slices](docs/slices.md)
 - [Hand-drawn import and review](docs/image-import.md)
 - [Camera capture from Codex (planned)](docs/camera-capture.md)
 - [Two-path example](examples/two-paths.breadboard.yaml)
 - [Component interaction example](examples/publishing.breadboard.yaml)
+- [Sliced journey example](examples/slices.breadboard.yaml)
 
 ## Two ways into the same model
 
@@ -72,7 +90,7 @@ JSON Schema. Round-trip tests preserve metadata, scenarios, and layout. Graph an
 fit checks remain separate from file-format validation.
 
 The React/TypeScript editor in `src/editor` uses the tldraw SDK and this YAML API.
-Open and Save YAML operate on local files. Graph checks are independent of the
+Open, Save, and Save As operate on local files through the loopback-only server. Graph checks are independent of the
 canvas, in `src/editor/model.ts`.
 
 The first acceptance case is: open the two-path example, rename an affordance,

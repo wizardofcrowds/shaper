@@ -1,15 +1,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Tldraw, useValue } from 'tldraw';
 import type { Editor } from 'tldraw';
-import { BreadboardError, MAX_YAML_BYTES, parseBreadboard, writeBreadboard } from '../index.ts';
+import { BreadboardError, parseBreadboard, writeBreadboard } from '../index.ts';
 import type { Affordance, Breadboard, BreadboardNode, Connection } from '../model.ts';
 import example from '../../examples/two-paths.breadboard.yaml?raw';
 import componentExample from '../../examples/publishing.breadboard.yaml?raw';
-import { CanvasInteraction, createController, nodeShapeId, readModel, shapeUtils } from './canvas.tsx';
+import sliceExample from '../../examples/slices.breadboard.yaml?raw';
+import { CanvasInteraction, createController, nodeShapeId, sliceShapeId, readModel, shapeUtils } from './canvas.tsx';
 import type { CanvasController } from './canvas.tsx';
+import { FileDialog } from './FileDialog.tsx';
+import { inspectFile, readLocalFile, saveLocalFile } from './files.ts';
+import type { FileTarget } from './files.ts';
+import { addSlice, assignSlice, boundaryConnections, deleteSlice, resizeSlice, settleNodeDrops, sliceMembers } from './slices.ts';
+import { NODE_COLORS } from '../colors.ts';
+import { nodeColorStyle } from './colors.ts';
 import { addAffordance, addNode, affordanceIds, checkBreadboard, connect, connectionAt, connections, deleteAffordance, deleteConnection, deleteNode, moveAffordance, moveConnection, withLayout } from './model.ts';
 
-type Selection = { type: 'node'; id: string; row?: string } | { type: 'connection'; id: string } | null;
+type Selection = { type: 'node'; id: string; row?: string } | { type: 'connection'; id: string } | { type: 'slice'; id: string } | null;
 type Notice = { text: string; error?: boolean } | null;
 const initial = withLayout(parseBreadboard(example));
 const components = { ContextMenu: null };
@@ -84,11 +91,17 @@ export default function App() {
   const [filename, setFilename] = useState('two-paths.breadboard.yaml');
   const [saved, setSaved] = useState(() => writeBreadboard(initial));
   const [yamlDraft, setYamlDraft] = useState<string | null>(null);
-  const fileInput = useRef<HTMLInputElement>(null);
+  const [fileTarget, setFileTarget] = useState<FileTarget | null>(null);
+  const [fileDialog, setFileDialog] = useState<'open' | 'save' | null>(null);
+  const [lastDirectory, setLastDirectory] = useState<string>();
+  const [fileBusy, setFileBusy] = useState(false);
+  const fileOperation = useRef(false);
   const model = useValue('shaper model', () => editor ? readModel(editor) : initial, [editor]);
-  const selectedNativeNode = useValue('shaper selection', () => {
+  const selectedNative = useValue('shaper selection', () => {
     const selected = editor?.getOnlySelectedShape();
-    return selected?.type === 'breadboard-node' ? selected.props.nodeId : null;
+    if (selected?.type === 'breadboard-node') return `node:${selected.props.nodeId}`;
+    if (selected?.type === 'breadboard-slice') return `slice:${selected.props.sliceId}`;
+    return null;
   }, [editor]);
   const canUndo = useValue('can undo', () => editor?.getCanUndo() ?? false, [editor]);
   const canRedo = useValue('can redo', () => editor?.getCanRedo() ?? false, [editor]);
@@ -99,16 +112,20 @@ export default function App() {
   const errors = findings.filter(finding => finding.severity === 'error').length;
 
   useEffect(() => {
-    setSelection(previous => selectedNativeNode
-      ? previous?.type === 'node' && previous.id === selectedNativeNode ? previous : { type: 'node', id: selectedNativeNode }
-      : previous?.type === 'node' ? null : previous);
-  }, [selectedNativeNode]);
+    if (selectedNative) { setTab('inspect'); setRightCollapsed(false); }
+    setSelection(previous => {
+      if (!selectedNative) return previous?.type === 'connection' ? previous : null;
+      const [type, id] = selectedNative.split(':') as ['node' | 'slice', string];
+      return previous?.type === type && previous.id === id ? previous : { type, id };
+    });
+  }, [selectedNative]);
 
   const selectNode = useCallback((id: string, row?: string) => {
     editor?.select(nodeShapeId(id));
     setSelection({ type: 'node', id, ...(row ? { row } : {}) });
     setTab('inspect'); setRightCollapsed(false);
   }, [editor]);
+  const selectSlice = (id: string) => { editor?.select(sliceShapeId(id)); setSelection({ type: 'slice', id }); setTab('inspect'); setRightCollapsed(false); };
   const selectConnection = (id: string) => { editor?.selectNone(); setSelection({ type: 'connection', id }); setTab('inspect'); setRightCollapsed(false); };
   const update = (next: Breadboard) => {
     try { controller.current?.update(next); setNotice(null); }
@@ -120,33 +137,72 @@ export default function App() {
     edit(change);
   };
 
-  function download() {
-    try {
-      if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
-      const text = writeBreadboard(editor ? readModel(editor) : model);
-      const url = URL.createObjectURL(new Blob([text], { type: 'application/yaml' }));
-      const anchor = document.createElement('a');
-      anchor.href = url; anchor.download = filename;
-      document.body.append(anchor); anchor.click(); anchor.remove();
-      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-      setSaved(text); setNotice({ text: `Downloaded ${filename}` });
-    } catch (error) { setNotice({ text: errorText(error), error: true }); }
+  function serializeCurrent() {
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    return writeBreadboard(editor ? readModel(editor) : model);
   }
 
-  function replaceDocument(text: string, name: string) {
+  async function saveDocument(as = false) {
+    if (fileOperation.current || fileDialog !== null) return;
+    if (yamlDraft !== null) { setNotice({ text: 'Apply YAML edits before saving.', error: true }); return; }
+    if (as || !fileTarget) { serializeCurrent(); setFileDialog('save'); return; }
+    fileOperation.current = true; setFileBusy(true);
+    try {
+      const text = serializeCurrent();
+      const target = await saveLocalFile(fileTarget.path, text, fileTarget.revision);
+      setFileTarget(target); setFilename(target.name); setSaved(text); setNotice({ text: `Saved ${target.path}` });
+    } catch (error) { setNotice({ text: errorText(error), error: true }); }
+    finally { fileOperation.current = false; setFileBusy(false); }
+  }
+
+  function replaceDocument(text: string, name: string, target: FileTarget | null = null): boolean {
     try {
       const next = withLayout(parseBreadboard(text));
-      if (dirty && !window.confirm('Replace this breadboard and discard unsaved changes? Cancel to return and save them first.')) return;
+      if (dirty && !window.confirm('Replace this breadboard and discard unsaved changes? Cancel to return and save them first.')) return false;
       controller.current?.load(next);
-      setSaved(writeBreadboard(next)); setFilename(name); setSelection(null); setPending(null); setNotice(null);
-    } catch (error) { setNotice({ text: errorText(error), error: true }); }
+      setSaved(writeBreadboard(next)); setFilename(name); setFileTarget(target); setSelection(null); setPending(null); setNotice(null);
+      return true;
+    } catch (error) { setNotice({ text: errorText(error), error: true }); return false; }
+  }
+
+  async function chooseFile(path: string) {
+    if (fileOperation.current) return;
+    fileOperation.current = true; setFileBusy(true);
+    try {
+      if (fileDialog === 'open') {
+        const opened = await readLocalFile(path);
+        if (!replaceDocument(opened.text, opened.name, opened)) return;
+      } else {
+        const destination = await inspectFile(path);
+        if (destination.revision !== null && !window.confirm(`Replace “${destination.path}” with this breadboard?`)) return;
+        const text = serializeCurrent();
+        const target = await saveLocalFile(destination.path, text, destination.revision);
+        setFileTarget(target); setFilename(target.name); setSaved(text); setNotice({ text: `Saved ${target.path}` });
+      }
+      setLastDirectory(path.slice(0, path.lastIndexOf('/')) || '/');
+      setFileDialog(null);
+    } finally { fileOperation.current = false; setFileBusy(false); }
   }
 
   function createNode(kind: BreadboardNode['kind']) {
     if (!editor) return;
     const center = editor.getViewportPageBounds().center;
     const result = addNode(model, kind, { x: Math.round(center.x - 150), y: Math.round(center.y - 70) });
-    update(result.model); selectNode(result.id);
+    update(settleNodeDrops(result.model, [result.id])); selectNode(result.id);
+  }
+
+  function createSlice() {
+    if (!editor) return;
+    const right = Math.max(0, ...Object.values(model.layout?.nodes ?? {}).map(point => point.x + 300), ...Object.values(model.layout?.slices ?? {}).map(box => box.x + box.w));
+    const result = addSlice(model, { x: right + 100, y: editor.getViewportPageBounds().center.y - 210 });
+    update(result.model); selectSlice(result.id);
+    editor.zoomToFit({ animation: { duration: 180 } });
+  }
+
+  function setSliceSize(id: string, axis: 'w' | 'h', value: string) {
+    const number = Number(value);
+    if (!Number.isFinite(number) || number <= 0) { setNotice({ text: 'Enter a positive size.', error: true }); return; }
+    update(resizeSlice(model, id, { ...model.layout!.slices![id]!, [axis]: number }));
   }
 
   function createConnection(from: string, to: string) {
@@ -157,7 +213,9 @@ export default function App() {
   function deleteSelection() {
     if (!selection) return;
     try {
-      if (selection.type === 'connection') {
+      if (selection.type === 'slice') {
+        update(deleteSlice(model, selection.id)); setSelection(null); editor?.selectNone();
+      } else if (selection.type === 'connection') {
         update(deleteConnection(model, selection.id)); setSelection(null);
       } else if (selection.row) {
         const row = selection.row;
@@ -177,8 +235,8 @@ export default function App() {
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') { event.preventDefault(); event.stopImmediatePropagation(); if (yamlDraft !== null) setNotice({ text: 'Apply YAML edits before saving.', error: true }); else download(); return; }
-      if (target?.matches('input, textarea, select') || target?.isContentEditable || yamlDraft !== null) return;
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') { event.preventDefault(); event.stopImmediatePropagation(); if (yamlDraft !== null) setNotice({ text: 'Apply YAML edits before saving.', error: true }); else void saveDocument(event.shiftKey); return; }
+      if (target?.matches('input, textarea, select') || target?.isContentEditable || yamlDraft !== null || fileDialog !== null || fileBusy) return;
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z') { event.preventDefault(); event.stopImmediatePropagation(); if (event.shiftKey) controller.current?.redo(); else controller.current?.undo(); }
       if (event.key === 'Escape') setPending(null);
       if (event.key === 'Delete' || event.key === 'Backspace') { event.preventDefault(); event.stopImmediatePropagation(); deleteSelection(); }
@@ -189,25 +247,19 @@ export default function App() {
 
   const node = selection?.type === 'node' ? model.nodes[selection.id] : undefined;
   const row = selection?.type === 'node' && selection.row ? node?.affordances[selection.row] : undefined;
+  const slice = selection?.type === 'slice' ? model.slices?.[selection.id] : undefined;
   const connection = selection?.type === 'connection' ? graphConnections.find(edge => edge.id === selection.id) : undefined;
 
   return <div className="app-shell">
     <header className="app-header">
       <div className="brand"><span className="brand-mark">s</span><span>shaper</span><span className="workspace-divider" /><span className="workspace-kind">Breadboard</span></div>
       <div className="file-tools">
-        <button onClick={() => replaceDocument(writeBreadboard({ version: '0.1', title: 'Untitled breadboard', nodes: { home: { kind: 'place', label: 'Home', affordances: {} } } }), 'untitled.breadboard.yaml')}><Icon name="plus" />New</button>
-        <button onClick={() => fileInput.current?.click()}><Icon name="open" />Open YAML</button>
-        <button onClick={() => setYamlDraft(currentYaml)}><Icon name="code" />YAML</button>
-        <button className="primary" onClick={download}><Icon name="save" />Save YAML</button>
+        <button disabled={fileBusy} onClick={() => replaceDocument(writeBreadboard({ version: '0.1', title: 'Untitled breadboard', nodes: { home: { kind: 'place', label: 'Home', affordances: {} } } }), 'untitled.breadboard.yaml')}><Icon name="plus" />New</button>
+        <button disabled={fileBusy} onClick={() => { serializeCurrent(); setFileDialog('open'); }}><Icon name="open" />Open</button>
+        <button disabled={fileBusy} onClick={() => setYamlDraft(currentYaml)}><Icon name="code" />YAML</button>
+        <button disabled={fileBusy} className="primary" onClick={() => void saveDocument()}><Icon name="save" />Save</button>
+        <button disabled={fileBusy} onClick={() => void saveDocument(true)}>Save As</button>
       </div>
-      <input ref={fileInput} type="file" accept=".yaml,.yml,text/yaml,application/yaml" hidden onChange={async event => {
-        const file = event.target.files?.[0];
-        event.target.value = '';
-        if (!file) return;
-        if (file.size > MAX_YAML_BYTES) { setNotice({ text: 'This file exceeds the 1 MiB limit.', error: true }); return; }
-        try { replaceDocument(await file.text(), file.name); }
-        catch (error) { setNotice({ text: errorText(error), error: true }); }
-      }} />
     </header>
 
     <div className="document-bar">
@@ -230,16 +282,19 @@ export default function App() {
         <div className="panel-heading"><span>PLACES & COMPONENTS</span><span className="subtle">{Object.keys(model.nodes).length}</span></div>
         <div className="node-list">
           {Object.entries(model.nodes).map(([id, entry]) => <button key={id} className={`nav-item ${selection?.type === 'node' && selection.id === id ? 'active' : ''}`} onClick={() => selectNode(id)}>
-            <span className={`node-symbol ${entry.kind === 'component' ? 'component-symbol' : ''}`} />
-            <span><span className="nav-label">{entry.label}</span><small>{Object.keys(entry.affordances).length} affordances</small></span>
+            <span className={`node-symbol ${entry.kind === 'component' ? 'component-symbol' : ''}`} style={nodeColorStyle(entry.color)} />
+            <span><span className="nav-label">{entry.label}</span><small>{Object.keys(entry.affordances).length} affordances{entry.slice && ` · ${model.slices?.[entry.slice]?.label ?? "Missing slice"}`}</small></span>
           </button>)}
         </div>
         <div className="add-buttons"><button onClick={() => createNode('place')}><Icon name="plus" />Place</button><button onClick={() => createNode('component')}><Icon name="plus" />Component</button></div>
-        <div className="navigator-footer"><span>EXAMPLES</span><button onClick={() => replaceDocument(example, 'two-paths.breadboard.yaml')}>Two paths from Home ↗</button><button onClick={() => replaceDocument(componentExample, 'publishing.breadboard.yaml')}>Component interaction ↗</button></div>
+        <div className="panel-heading slice-list-heading"><span>SLICES</span><button className="tiny-button" aria-label="Add slice" onClick={createSlice}><Icon name="plus" /></button></div>
+        {Object.entries(model.slices ?? {}).map(([id, entry]) => <button key={id} className={`nav-item ${selection?.type === 'slice' && selection.id === id ? 'active' : ''}`} onClick={() => selectSlice(id)}><span className="slice-symbol" /><span><span className="nav-label">{entry.label}</span><small>{sliceMembers(model, id).length} {sliceMembers(model, id).length === 1 ? 'member' : 'members'}</small></span></button>)}
+        {!Object.keys(model.slices ?? {}).length && <p className="help slice-list-help">Group places and components around a useful outcome.</p>}
+        <div className="navigator-footer"><span>EXAMPLES</span><button disabled={fileBusy} onClick={() => replaceDocument(example, 'two-paths.breadboard.yaml')}>Two paths from Home ↗</button><button disabled={fileBusy} onClick={() => replaceDocument(componentExample, 'publishing.breadboard.yaml')}>Component interaction ↗</button><button disabled={fileBusy} onClick={() => replaceDocument(sliceExample, 'slices.breadboard.yaml')}>Sliced journey ↗</button></div>
       </aside>
 
       <section className="canvas-region" aria-label="Breadboard canvas">
-        {!pending && <div className="canvas-create-tools"><button onClick={() => createNode('place')}><Icon name="plus" />Place</button><button onClick={() => createNode('component')}><Icon name="plus" />Component</button></div>}
+        {!pending && <div className="canvas-create-tools"><button onClick={() => createNode('place')}><Icon name="plus" />Place</button><button onClick={() => createNode('component')}><Icon name="plus" />Component</button><button onClick={createSlice}><Icon name="plus" />Slice</button></div>}
         {pending && <div className="connect-banner"><span>Connect <strong>{endpointLabel(model, pending)}</strong> · choose a heading or affordance</span><button onClick={() => setPending(null)}>Cancel</button></div>}
         <CanvasInteraction.Provider value={{ pending, selectedRow: selection?.type === 'node' && selection.row ? `${selection.id}.${selection.row}` : null, select: selectNode, startConnection: ref => { setPending(ref); setNotice(null); }, target: ref => { if (pending) createConnection(pending, ref); } }}>
           <Tldraw hideUi shapeUtils={shapeUtils} components={components} onMount={mounted => {
@@ -266,6 +321,19 @@ export default function App() {
             {!findings.length && <div className="check-success"><Icon name="check" /><span>References resolve and navigation scenarios reach their expected destinations.</span></div>}
             {findings.map((finding, index) => <div key={index} className={`finding finding-${finding.severity}`}><span className="finding-kind">{finding.severity}</span><p>{finding.message}</p></div>)}
             <p className="help check-note">Unfinished connections can still be saved. Deleting a place or affordance removes its outgoing paths. Incoming references and scenarios remain here until you resolve them.</p>
+          </> : slice && selection?.type === 'slice' ? <>
+            <div className="section-eyebrow">SLICE</div><h2>Edit slice</h2><code className="semantic-id">{selection.id}</code>
+            <Field label="Slice name" value={slice.label} onCommit={value => requiredLabel(value, next => { next.slices![selection.id]!.label = value; })} multiline />
+            <p className="help">Drag a place or component into this region to assign it. Drag the slice heading to move all its members. Resize with the corner handles.</p>
+            <div className="slice-size-fields"><Field label="Slice width" value={String(Math.round(model.layout!.slices![selection.id]!.w))} onCommit={value => setSliceSize(selection.id, 'w', value)} /><Field label="Slice height" value={String(Math.round(model.layout!.slices![selection.id]!.h))} onCommit={value => setSliceSize(selection.id, 'h', value)} /></div>
+            <div className="section-heading"><h3>Members</h3><span className="subtle">{sliceMembers(model, selection.id).length}</span></div>
+            {sliceMembers(model, selection.id).map(id => <div className="slice-member" key={id}><button className="inspector-row" onClick={() => selectNode(id)}>{model.nodes[id]!.label}<small>{model.nodes[id]!.kind}</small></button><button className="text-button" aria-label={`Unassign ${model.nodes[id]!.label}`} onClick={() => { update(assignSlice(model, id, null)); editor?.zoomToFit({ animation: { duration: 180 } }); }}>Unassign</button></div>)}
+            {!sliceMembers(model, selection.id).length && <p className="help">No members yet. Move a node here, or choose this slice in a node’s inspector.</p>}
+            <div className="section-heading"><h3>Connections across boundary</h3></div>
+            {boundaryConnections(model, selection.id).map(edge => <button className="inspector-row" key={edge.id} onClick={() => selectConnection(edge.id)}>{endpointLabel(model, edge.from)} → {endpointLabel(model, edge.to)}<small>{edge.kind}</small></button>)}
+            {!boundaryConnections(model, selection.id).length && <p className="help">No connections cross this slice’s boundary.</p>}
+            <p className="help">These are existing node connections. Use them to consider prerequisites and where to start.</p>
+            <button className="danger-button" onClick={deleteSelection}>Delete slice · keep members</button>
           </> : node && selection?.type === 'node' ? <>
             <div className="section-eyebrow">{row ? 'AFFORDANCE' : node.kind.toUpperCase()}</div><h2>{row ? 'Edit affordance' : 'Edit place or component'}</h2>
             <code className="semantic-id">{selection.id}{selection.row ? `.${selection.row}` : ''}</code>
@@ -296,6 +364,20 @@ export default function App() {
             </> : <>
               <Field label="Place label" value={node.label} onCommit={value => requiredLabel(value, next => { next.nodes[selection.id]!.label = value; })} multiline />
               <label className="field"><span>Node kind</span><select value={node.kind} onChange={event => edit(next => { next.nodes[selection.id]!.kind = event.target.value as BreadboardNode['kind']; })}><option value="place">Place</option><option value="component">Component</option></select></label>
+              <label className="field"><span>Slice</span><select aria-label="Slice" value={node.slice ?? ''} onChange={event => { update(assignSlice(model, selection.id, event.target.value || null)); editor?.zoomToFit({ animation: { duration: 180 } }); }}>
+                <option value="">Unassigned</option>
+                {node.slice && !Object.hasOwn(model.slices ?? {}, node.slice) && <option value={node.slice}>{node.slice} (missing)</option>}
+                {Object.entries(model.slices ?? {}).map(([id, entry]) => <option value={id} key={id}>{entry.label}</option>)}
+              </select></label>
+              <fieldset className="node-color-picker"><legend>Color</legend>
+                <div className="color-swatches" role="group" aria-label="Place or component color">
+                  {NODE_COLORS.map(tone => <button key={tone.id} type="button" className="color-swatch" style={nodeColorStyle(tone.id)} aria-label={`${tone.label} color`} title={tone.label} aria-pressed={node.color === tone.id}
+                    onClick={() => edit(next => { next.nodes[selection.id]!.color = tone.id; })}>
+                    {node.color === tone.id && <Icon name="check" />}
+                  </button>)}
+                </div>
+                <div className="color-selection"><span>{NODE_COLORS.find(tone => tone.id === node.color)?.label ?? 'Default'}</span><button type="button" className="text-button" disabled={!node.color} onClick={() => edit(next => { delete next.nodes[selection.id]!.color; })}>Reset to default</button></div>
+              </fieldset>
               <div className="section-heading"><h3>Affordances</h3><button className="tiny-button" aria-label="Add affordance" onClick={() => { const result = addAffordance(model, selection.id); update(result.model); selectNode(selection.id, result.id); }}><Icon name="plus" /></button></div>
               {affordanceIds(node).map((id, index, entries) => { const entry = node.affordances[id]!; return <div className="affordance-list-item" key={id}>
                 <button className="inspector-row" onClick={() => selectNode(selection.id, id)}><span>{entry.label}</span><small>{entry.kind} ↗</small></button>
@@ -321,8 +403,18 @@ export default function App() {
         </div>
       </aside>
     </main>
-    <footer className="status-bar"><span className="status-file">{filename}</span><span>{Object.keys(model.nodes).length} nodes · {graphConnections.length} connections · {model.scenarios?.length ?? 0} scenarios</span><span className="local-indicator">Local workspace</span></footer>
+    <footer className="status-bar">
+      <div className="status-details"><span className="status-file" title={fileTarget?.path}>{fileTarget?.path ?? filename}{!fileTarget && <span> · Not saved to a file</span>}</span><span>{Object.keys(model.nodes).length} nodes · {Object.keys(model.slices ?? {}).length} slices · {graphConnections.length} connections · {model.scenarios?.length ?? 0} scenarios</span><span className="local-indicator">Local workspace</span></div>
+      <div className="canvas-shortcuts" aria-label="Keyboard and mouse instructions">
+        <span><strong>Pan</strong> <kbd>Space</kbd> + drag or two-finger scroll</span>
+        <span><strong>Zoom</strong> pinch or <kbd>⌘ / Ctrl</kbd> + scroll</span>
+        <span><strong>Page</strong> <kbd>Space</kbd> + <kbd>↑ ↓ ← →</kbd></span>
+        <span><strong>Fit</strong> click Fit to view</span>
+        <span><strong>Save</strong> <kbd>⌘ / Ctrl</kbd> + <kbd>S</kbd> · add <kbd>Shift</kbd> for Save As</span>
+      </div>
+    </footer>
 
+    {fileDialog !== null && <FileDialog mode={fileDialog} directory={fileTarget ? fileTarget.path.slice(0, fileTarget.path.lastIndexOf('/')) : lastDirectory} filename={filename} onChoose={chooseFile} onCancel={() => setFileDialog(null)} />}
     {yamlDraft !== null && <div className="modal-backdrop"><section className="yaml-modal" role="dialog" aria-modal="true" aria-labelledby="yaml-title"><div className="modal-heading"><div><span className="section-eyebrow">BREADBOARD FILE</span><h2 id="yaml-title">Read and edit the YAML</h2></div><button aria-label="Close YAML" onClick={() => setYamlDraft(null)}>×</button></div><p className="help">Applying validates the document first. Metadata, scenarios, and layout remain part of the file.</p><textarea aria-label="YAML document" spellCheck={false} value={yamlDraft} onChange={event => setYamlDraft(event.target.value)} />{notice?.error && <div className="yaml-error" role="alert">{notice.text}</div>}<div className="modal-actions"><button onClick={() => setYamlDraft(null)}>Cancel</button><button className="primary" onClick={() => {
       try { const next = withLayout(parseBreadboard(yamlDraft)); controller.current?.update(next); editor?.selectNone(); setYamlDraft(null); setPending(null); setSelection(null); setNotice(null); }
       catch (error) { setNotice({ text: errorText(error), error: true }); }

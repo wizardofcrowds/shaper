@@ -4,6 +4,7 @@ import schema from '../schema/breadboard.schema.json' with { type: 'json' };
 import type { Breadboard } from './model.ts';
 
 export type * from './model.ts';
+export { NODE_COLORS } from './colors.ts';
 
 export const MAX_YAML_BYTES = 1_048_576;
 export const MAX_VALUE_DEPTH = 64;

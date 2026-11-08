@@ -31,6 +31,18 @@ export function withLayout(model: Breadboard): Breadboard {
     result.nodes[id]!.affordance_order ??= Object.keys(result.nodes[id]!.affordances);
     if (!Object.hasOwn(result.layout!.nodes!, id)) result.layout!.nodes![id] = { x: Math.floor(index / 3) * 430, y: index % 3 * 280 };
   });
+  if (Object.keys(result.slices ?? {}).length) {
+    result.layout.slices ??= {};
+    Object.keys(result.slices!).forEach((id, index) => {
+      if (Object.hasOwn(result.layout!.slices!, id)) return;
+      const members = Object.entries(result.nodes).filter(([, node]) => node.slice === id);
+      const x = members.length ? Math.min(...members.map(([key]) => result.layout!.nodes![key]!.x)) - 24 : Math.max(0, ...Object.values(result.layout!.nodes!).map(point => point.x + NODE_WIDTH)) + 100 + index * 720;
+      const y = members.length ? Math.min(...members.map(([key]) => result.layout!.nodes![key]!.y)) - 64 : 0;
+      const right = Math.max(x + 640, ...members.map(([key]) => result.layout!.nodes![key]!.x + NODE_WIDTH + 24));
+      const bottom = Math.max(y + 420, ...members.map(([key, node]) => result.layout!.nodes![key]!.y + nodeHeight(node) + 24));
+      result.layout!.slices![id] = { x, y, w: right - x, h: bottom - y };
+    });
+  }
   return result;
 }
 
@@ -187,6 +199,7 @@ export function checkBreadboard(model: Breadboard): Finding[] {
     check(connection.to, connection.id);
   }
   for (const [id, node] of Object.entries(model.nodes)) {
+    if (node.slice && !Object.hasOwn(model.slices ?? {}, node.slice)) findings.push({ severity: 'error', ref: id, message: `${id} belongs to missing slice “${node.slice}”.` });
     if (!node.affordance_order) continue;
     for (const rowId of node.affordance_order) {
       if (!Object.hasOwn(node.affordances, rowId)) findings.push({ severity: 'error', ref: id, message: `${id}: display order refers to missing affordance “${rowId}”.` });
@@ -197,6 +210,9 @@ export function checkBreadboard(model: Breadboard): Finding[] {
   }
   for (const id of Object.keys(model.layout?.nodes ?? {})) {
     if (!Object.hasOwn(model.nodes, id)) findings.push({ severity: 'warning', ref: id, message: `Layout contains missing node “${id}”.` });
+  }
+  for (const id of Object.keys(model.layout?.slices ?? {})) {
+    if (!Object.hasOwn(model.slices ?? {}, id)) findings.push({ severity: 'warning', ref: id, message: `Layout contains missing slice “${id}”.` });
   }
   const seen = new Set<string>();
   for (const scenario of model.scenarios ?? []) {

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import {
-  BreadboardError, MAX_VALUE_DEPTH, MAX_YAML_BYTES,
+  BreadboardError, MAX_VALUE_DEPTH, MAX_YAML_BYTES, NODE_COLORS,
   parseBreadboard, validateBreadboard, writeBreadboard,
 } from '../src/index.ts';
 import type { Breadboard, BreadboardIssue, JsonValue } from '../src/index.ts';
@@ -166,4 +166,30 @@ test('rejects the old top-level connection format and redundant nested sources',
   rejects(() => writeBreadboard({ ...model, connections: {} }), { path: '/connections', code: 'schema' });
   Object.assign(model.nodes.home!.affordances.path_one!.connections!.first_path!, { from: 'home.path_one' });
   rejects(() => writeBreadboard(model), { path: '/nodes/home/affordances/path_one/connections/first_path/from', code: 'schema' });
+});
+
+
+test('all 16 node colors round-trip for places and components without changing graph meaning', () => {
+  assert.equal(NODE_COLORS.length, 16);
+  assert.equal(new Set(NODE_COLORS.map(color => color.id)).size, 16);
+  for (const { id } of NODE_COLORS) {
+    const model = fresh();
+    model.nodes.home!.color = id;
+    model.nodes.path_one!.kind = 'component';
+    model.nodes.path_one!.color = id;
+    const reopened = parseBreadboard(writeBreadboard(model));
+    assert.equal(reopened.nodes.home!.color, id);
+    assert.equal(reopened.nodes.path_one!.color, id);
+    assert.deepEqual(reopened, model);
+  }
+  const model = fresh();
+  assert.equal(Object.hasOwn(parseBreadboard(writeBreadboard(model)).nodes.home!, 'color'), false);
+});
+
+test('schema rejects unsupported node colors and accepts resetting to an omitted color', () => {
+  const model = fresh();
+  Object.assign(model.nodes.home!, { color: '#ff0000' });
+  rejects(() => writeBreadboard(model), { code: 'schema', path: '/nodes/home/color' });
+  delete model.nodes.home!.color;
+  assert.deepEqual(parseBreadboard(writeBreadboard(model)), model);
 });
