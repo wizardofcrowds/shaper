@@ -399,7 +399,7 @@ export default function App() {
             <button className="text-button" onClick={() => { const [nodeId, rowId] = connection.from.split('.'); selectNode(nodeId!, rowId); }}>Edit source affordance →</button>
             <ConnectionFields key={selection.id} connection={connection} model={model} onChange={change => edit(next => change(connectionAt(next, selection.id)))} />
             <p className="help">Choose an endpoint to reconnect this path. Moving a place keeps the same endpoints.</p><button className="danger-button" onClick={deleteSelection}>Delete connection</button>
-          </> : <div className="inspector-empty"><span className="empty-symbol">↖</span><h2>Give the idea a shape.</h2><p>Select a place, affordance, or connection to edit it.</p><div className="mini-breadboard"><strong>A place</strong><span>An affordance <span>→</span></span></div><p className="help">Keep the words and connections. Leave the visual design open.</p></div>}
+          </> : <div className="inspector-empty"><p>No component/place is selected.</p></div>}
         </div>
       </aside>
     </main>
