@@ -20,6 +20,13 @@ type Selection = { type: 'node'; id: string; row?: string } | { type: 'connectio
 type Notice = { text: string; error?: boolean } | null;
 const initial = withLayout(parseBreadboard(example));
 const components = { ContextMenu: null };
+
+function rememberFile(path: string | null) {
+  const url = new URL(window.location.href);
+  if (path) url.searchParams.set('file', path);
+  else url.searchParams.delete('file');
+  window.history.replaceState(window.history.state, '', url);
+}
 const affordanceKinds: Affordance['kind'][] = ['action', 'input', 'copy', 'capability', 'event'];
 const connectionKinds: Connection['kind'][] = ['navigate', 'invoke', 'emit', 'read', 'write'];
 
@@ -47,11 +54,11 @@ function Icon({ name }: { name: string }) {
   return <svg aria-hidden="true" viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d={paths[name] ?? paths.plus} /></svg>;
 }
 
-function Field({ label, value, onCommit, multiline = false }: { label: string; value: string; onCommit: (value: string) => void; multiline?: boolean }) {
+function Field({ label, value, onCommit, multiline = false, placeholder }: { label: string; value: string; onCommit: (value: string) => void; multiline?: boolean; placeholder?: string }) {
   const [draft, setDraft] = useState(value);
   const cancelled = useRef(false);
   useEffect(() => setDraft(value), [value]);
-  const props = { 'aria-label': label, value: draft, onChange: (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setDraft(event.target.value), onBlur: () => { if (cancelled.current) { cancelled.current = false; return; } if (draft !== value) onCommit(draft); }, onKeyDown: (event: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => { if (event.key === 'Enter' && !multiline) event.currentTarget.blur(); if (event.key === 'Escape') { cancelled.current = true; setDraft(value); event.currentTarget.blur(); } } };
+  const props = { 'aria-label': label, placeholder, value: draft, onChange: (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setDraft(event.target.value), onBlur: () => { if (cancelled.current) { cancelled.current = false; return; } if (draft !== value) onCommit(draft); }, onKeyDown: (event: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => { if (event.key === 'Enter' && !multiline) event.currentTarget.blur(); if (event.key === 'Escape') { cancelled.current = true; setDraft(value); event.currentTarget.blur(); } } };
   return <label className="field"><span>{label}</span>{multiline ? <textarea rows={2} {...props} /> : <input {...props} />}</label>;
 }
 
@@ -83,6 +90,7 @@ export default function App() {
   const [editor, setEditor] = useState<Editor | null>(null);
   const controller = useRef<CanvasController | null>(null);
   const [selection, setSelection] = useState<Selection>(null);
+  const [unlabeledAffordances, setUnlabeledAffordances] = useState<Set<string>>(() => new Set());
   const [pending, setPending] = useState<string | null>(null);
   const [leftCollapsed, setLeftCollapsed] = useState(() => window.matchMedia('(max-width: 850px)').matches);
   const [rightCollapsed, setRightCollapsed] = useState(false);
@@ -94,7 +102,8 @@ export default function App() {
   const [fileTarget, setFileTarget] = useState<FileTarget | null>(null);
   const [fileDialog, setFileDialog] = useState<'open' | 'save' | null>(null);
   const [lastDirectory, setLastDirectory] = useState<string>();
-  const [fileBusy, setFileBusy] = useState(false);
+  const startupFile = useRef(new URL(window.location.href).searchParams.get('file'));
+  const [fileBusy, setFileBusy] = useState(Boolean(startupFile.current));
   const fileOperation = useRef(false);
   const model = useValue('shaper model', () => editor ? readModel(editor) : initial, [editor]);
   const selectedNative = useValue('shaper selection', () => {
@@ -119,6 +128,30 @@ export default function App() {
       return previous?.type === type && previous.id === id ? previous : { type, id };
     });
   }, [selectedNative]);
+
+  useEffect(() => {
+    if (!editor || !startupFile.current) return;
+    let cancelled = false;
+    fileOperation.current = true;
+    setFileBusy(true);
+    void readLocalFile(startupFile.current).then(opened => {
+      if (cancelled) return;
+      const next = withLayout(parseBreadboard(opened.text));
+      controller.current?.load(next);
+      setSaved(writeBreadboard(next)); setFilename(opened.name); setFileTarget(opened);
+      setSelection(null); setPending(null); setUnlabeledAffordances(new Set()); setNotice(null);
+      setLastDirectory(opened.path.slice(0, opened.path.lastIndexOf('/')) || '/');
+      rememberFile(opened.path);
+    }).catch(error => {
+      if (!cancelled) setNotice({ text: `Could not reopen ${startupFile.current}: ${errorText(error)}`, error: true });
+    }).finally(() => {
+      if (!cancelled) {
+        startupFile.current = null;
+        fileOperation.current = false; setFileBusy(false);
+      }
+    });
+    return () => { cancelled = true; };
+  }, [editor]);
 
   const selectNode = useCallback((id: string, row?: string) => {
     editor?.select(nodeShapeId(id));
@@ -150,7 +183,7 @@ export default function App() {
     try {
       const text = serializeCurrent();
       const target = await saveLocalFile(fileTarget.path, text, fileTarget.revision);
-      setFileTarget(target); setFilename(target.name); setSaved(text); setNotice({ text: `Saved ${target.path}` });
+      rememberFile(target.path); setFileTarget(target); setFilename(target.name); setSaved(text); setNotice({ text: `Saved ${target.path}` });
     } catch (error) { setNotice({ text: errorText(error), error: true }); }
     finally { fileOperation.current = false; setFileBusy(false); }
   }
@@ -160,7 +193,8 @@ export default function App() {
       const next = withLayout(parseBreadboard(text));
       if (dirty && !window.confirm('Replace this breadboard and discard unsaved changes? Cancel to return and save them first.')) return false;
       controller.current?.load(next);
-      setSaved(writeBreadboard(next)); setFilename(name); setFileTarget(target); setSelection(null); setPending(null); setNotice(null);
+      rememberFile(target?.path ?? null);
+      setSaved(writeBreadboard(next)); setFilename(name); setFileTarget(target); setSelection(null); setPending(null); setUnlabeledAffordances(new Set()); setNotice(null);
       return true;
     } catch (error) { setNotice({ text: errorText(error), error: true }); return false; }
   }
@@ -177,7 +211,7 @@ export default function App() {
         if (destination.revision !== null && !window.confirm(`Replace “${destination.path}” with this breadboard?`)) return;
         const text = serializeCurrent();
         const target = await saveLocalFile(destination.path, text, destination.revision);
-        setFileTarget(target); setFilename(target.name); setSaved(text); setNotice({ text: `Saved ${target.path}` });
+        rememberFile(target.path); setFileTarget(target); setFilename(target.name); setSaved(text); setNotice({ text: `Saved ${target.path}` });
       }
       setLastDirectory(path.slice(0, path.lastIndexOf('/')) || '/');
       setFileDialog(null);
@@ -338,7 +372,10 @@ export default function App() {
             <div className="section-eyebrow">{row ? 'AFFORDANCE' : node.kind.toUpperCase()}</div><h2>{row ? 'Edit affordance' : 'Edit place or component'}</h2>
             <code className="semantic-id">{selection.id}{selection.row ? `.${selection.row}` : ''}</code>
             {row && selection.row ? <>
-              <Field label="Affordance label" value={row.label} onCommit={value => requiredLabel(value, next => { next.nodes[selection.id]!.affordances[selection.row!]!.label = value; })} multiline />
+              <Field key={`${selection.id}.${selection.row}`} label="Affordance label" placeholder="New affordance" value={unlabeledAffordances.has(`${selection.id}.${selection.row}`) && row.label === 'New affordance' ? '' : row.label} onCommit={value => requiredLabel(value, next => {
+                next.nodes[selection.id]!.affordances[selection.row!]!.label = value;
+                setUnlabeledAffordances(previous => { const updated = new Set(previous); updated.delete(`${selection.id}.${selection.row}`); return updated; });
+              })} multiline />
               <label className="field"><span>Affordance kind</span><select value={row.kind} onChange={event => edit(next => { next.nodes[selection.id]!.affordances[selection.row!]!.kind = event.target.value as Affordance['kind']; })}>{affordanceKinds.map(kind => <option key={kind}>{kind}</option>)}</select></label>
               <div className="section-heading"><h3>Outgoing connections</h3></div>
               <p className="help">Each path starts from this affordance.</p>
@@ -351,16 +388,17 @@ export default function App() {
                 </section>;
               })}
               {!Object.keys(row.connections ?? {}).length && <p className="help">No outgoing connections yet.</p>}
-              <button className="wide-button" onClick={() => {
+              <button className="text-button secondary-action" onClick={() => {
                 const result = connect(model, `${selection.id}.${selection.row}`, Object.keys(model.nodes)[0]!);
                 update(result.model);
               }}><Icon name="plus" />Add connection</button>
               <button className="text-button" onClick={() => setPending(`${selection.id}.${selection.row}`)}>Choose destination on canvas →</button>
+              <button className="parent-navigation" onClick={() => selectNode(selection.id)}>← Back to {node.label}</button>
+              <button className="text-button secondary-action" onClick={() => { const result = addAffordance(model, selection.id); update(result.model); setUnlabeledAffordances(previous => new Set(previous).add(`${selection.id}.${result.id}`)); selectNode(selection.id, result.id); }}><Icon name="plus" />Add a New Affordance</button>
               <div className="affordance-order-actions">
                 <button disabled={affordanceIds(node)[0] === selection.row} onClick={() => update(moveAffordance(model, selection.id, selection.row!, -1))}><Icon name="up" />Move up</button>
                 <button disabled={affordanceIds(node).at(-1) === selection.row} onClick={() => update(moveAffordance(model, selection.id, selection.row!, 1))}><Icon name="down" />Move down</button>
               </div>
-              <button className="text-button" onClick={() => selectNode(selection.id)}>← Back to {node.label}</button>
             </> : <>
               <Field label="Place label" value={node.label} onCommit={value => requiredLabel(value, next => { next.nodes[selection.id]!.label = value; })} multiline />
               <label className="field"><span>Node kind</span><select value={node.kind} onChange={event => edit(next => { next.nodes[selection.id]!.kind = event.target.value as BreadboardNode['kind']; })}><option value="place">Place</option><option value="component">Component</option></select></label>
@@ -378,7 +416,7 @@ export default function App() {
                 </div>
                 <div className="color-selection"><span>{NODE_COLORS.find(tone => tone.id === node.color)?.label ?? 'Default'}</span><button type="button" className="text-button" disabled={!node.color} onClick={() => edit(next => { delete next.nodes[selection.id]!.color; })}>Reset to default</button></div>
               </fieldset>
-              <div className="section-heading"><h3>Affordances</h3><button className="tiny-button" aria-label="Add affordance" onClick={() => { const result = addAffordance(model, selection.id); update(result.model); selectNode(selection.id, result.id); }}><Icon name="plus" /></button></div>
+              <div className="section-heading"><h3>Affordances</h3><button className="tiny-button" aria-label="Add affordance" onClick={() => { const result = addAffordance(model, selection.id); update(result.model); setUnlabeledAffordances(previous => new Set(previous).add(`${selection.id}.${result.id}`)); selectNode(selection.id, result.id); }}><Icon name="plus" /></button></div>
               {affordanceIds(node).map((id, index, entries) => { const entry = node.affordances[id]!; return <div className="affordance-list-item" key={id}>
                 <button className="inspector-row" onClick={() => selectNode(selection.id, id)}><span>{entry.label}</span><small>{entry.kind} ↗</small></button>
                 <div className="reorder-controls">
@@ -387,7 +425,6 @@ export default function App() {
                 </div>
               </div>; })}
               {!Object.keys(node.affordances).length && <p className="help">What can someone do or read here?</p>}
-              <button className="wide-button" onClick={() => { const result = addAffordance(model, selection.id); update(result.model); selectNode(selection.id, result.id); }}><Icon name="plus" />Add affordance</button>
             </>}
             <p className="help id-note">Labels can change while connections keep their identity.</p>
             <button className="danger-button" onClick={deleteSelection}>Delete {row ? 'affordance' : node.kind}</button>

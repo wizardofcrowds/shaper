@@ -93,7 +93,10 @@ h3 { font-size: 12px; font-weight: 550; margin: 0; }
 .reorder-controls button:hover:not(:disabled) { background: #edf3e6; }
 .reorder-controls svg { width: 13px; height: 13px; }
 .affordance-order-actions { display: flex; gap: 8px; margin-top: 12px; }
-.affordance-order-actions button { flex: 1; font-size: 11px; }
+.affordance-order-actions button { font-size: 10px; font-weight: 400; padding: 5px 7px; background: transparent; border-color: transparent; color: #728268; }
+.affordance-order-actions button:hover:not(:disabled) { background: #eff2ec; }
+.parent-navigation { display: flex; width: 100%; justify-content: flex-start; margin-top: 16px; white-space: normal; text-align: left; color: #355d43; background: #f7f9f2; border-color: #e2e7d9; }
+.secondary-action { display: flex; padding: 7px 0; font-weight: 400; }
 .wide-button { width: 100%; font-size: 11px; margin-top: 16px; color: #5c7952; background: #f7f9f2; border-color: #e2e7d9; }
 .text-button { padding: 14px 0; background: transparent; border: 0; white-space: normal; font-size: 10px; color: #728268; }
 .help { color: #8a9281; font-size: 11px; line-height: 1.8; font-weight: 400; }

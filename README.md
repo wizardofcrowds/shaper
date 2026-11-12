@@ -52,6 +52,11 @@ an existing file through Save As requires confirmation. The complete document,
 including metadata, scenarios, and layout, is saved. A file changed by another
 app is reported as a conflict rather than silently overwritten.
 
+Opening or saving a file remembers its path in the URL (`?file=…`). Reload the
+page to read the latest YAML from disk, including edits made in another app.
+You can bookmark that URL to return to the file while Shaper is running on the
+same computer. New and the included examples clear the file path from the URL.
+
 The folder/filename dialog uses a local file service in Shaper's Vite server,
 so it works in the in-app browser without browser-specific filesystem APIs.
 Keep `./dev` running while using it; a separately hosted static build cannot
