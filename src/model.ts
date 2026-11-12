@@ -54,6 +54,6 @@ export interface Breadboard {
   nodes: Record<string, BreadboardNode>;
   slices?: Record<string, BreadboardSlice>;
   scenarios?: Scenario[];
-  layout?: { nodes?: Record<string, { x: number; y: number }>; slices?: Record<string, SliceBounds> };
+  layout?: { connections?: Record<string, { x: number }>; nodes?: Record<string, { x: number; y: number }>; slices?: Record<string, SliceBounds> };
   metadata?: Metadata;
 }

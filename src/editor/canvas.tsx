@@ -1,14 +1,14 @@
 import { createContext, useContext } from 'react';
 import {
   createShapeId, HTMLContainer, Polyline2d, Rectangle2d, Group2d, ShapeUtil,
-  SVGContainer, T, Vec, resizeBox,
+  SVGContainer, T, Vec, resizeBox, getIndexAbove,
 } from 'tldraw';
-import type { Editor, JsonObject, TLShape, TLResizeInfo } from 'tldraw';
+import type { Editor, JsonObject, TLShape, TLResizeInfo, TLHandleDragInfo } from 'tldraw';
 import { validateBreadboard } from '../index.ts';
 import type { Breadboard } from '../model.ts';
 import { nodeColorStyle } from './colors.ts';
 import { coverSliceMembers, deleteSlice, moveSlice, resizeSlice, settleNodeDrops, sliceMembers } from './slices.ts';
-import { affordanceIds, deleteNode, edgeGeometry, HEADER_HEIGHT, NODE_WIDTH, nodeHeight, ROW_HEIGHT, withLayout } from './model.ts';
+import { affordanceIds, deleteConnection, deleteNode, edgeGeometry, HEADER_HEIGHT, NODE_WIDTH, nodeHeight, ROW_HEIGHT, withLayout } from './model.ts';
 
 interface Row { id: string; label: string; kind: string }
 interface NodeProps { nodeId: string; label: string; kind: string; color: string; rows: Row[]; w: number; h: number }
@@ -27,7 +27,7 @@ type EdgeShape = TLShape<'breadboard-edge'>;
 type SliceShape = TLShape<'breadboard-slice'>;
 export const nodeShapeId = (id: string) => createShapeId(`shaper-node-${id}`);
 export const sliceShapeId = (id: string) => createShapeId(`shaper-slice-${id}`);
-const edgeShapeId = (id: string) => createShapeId(`shaper-edge-${id}`);
+export const edgeShapeId = (id: string) => createShapeId(`shaper-edge-${id}`);
 
 interface Interaction {
   pending: string | null;
@@ -89,6 +89,20 @@ export class BreadboardNodeUtil extends ShapeUtil<NodeShape> {
 }
 
 export class BreadboardEdgeUtil extends ShapeUtil<EdgeShape> {
+  override hideRotateHandle() { return true; }
+  override hideSelectionBoundsBg() { return true; }
+  override hideSelectionBoundsFg() { return true; }
+  override getHandles(shape: EdgeShape) {
+    const p = shape.props;
+    return [{ id: 'route', type: 'vertex' as const, index: getIndexAbove(null), x: p.mx, y: (p.sy + p.ey) / 2 }];
+  }
+  override onHandleDrag(shape: EdgeShape, { handle }: TLHandleDragInfo<EdgeShape>) {
+    return { id: shape.id, type: shape.type, props: { mx: handle.x } };
+  }
+  override onTranslate(initial: EdgeShape) {
+    return { id: initial.id, type: initial.type, x: initial.x, y: initial.y };
+  }
+
   static override type = 'breadboard-edge' as const;
   static override props = { connectionId: T.string, label: T.string, kind: T.string, sx: T.number, sy: T.number, mx: T.number, ex: T.number, ey: T.number };
   getDefaultProps(): EdgeProps { return { connectionId: '', label: '', kind: 'navigate', sx: 0, sy: 0, mx: 50, ex: 100, ey: 50 }; }
@@ -179,7 +193,7 @@ export function createController(editor: Editor, initial: Breadboard) {
           desired.add(shapeId);
           const props: EdgeProps = { connectionId: id, label: connection.label ?? '', kind: connection.kind, sx, sy, mx, ex, ey };
           const existing = editor.getShape<EdgeShape>(shapeId);
-          if (!existing) editor.createShape<EdgeShape>({ id: shapeId, type: 'breadboard-edge', x, y, isLocked: true, props });
+          if (!existing) editor.createShape<EdgeShape>({ id: shapeId, type: 'breadboard-edge', x, y, props });
           else if (existing.x !== x || existing.y !== y || JSON.stringify(existing.props) !== JSON.stringify(props)) editor.updateShape<EdgeShape>({ id: shapeId, type: 'breadboard-edge', x, y, props });
         }
         if (regions.length) editor.sendToBack(regions);
@@ -216,6 +230,12 @@ export function createController(editor: Editor, initial: Breadboard) {
       model.layout!.nodes![next.props.nodeId] = { x: next.x || 0, y: next.y || 0 };
       if (!editor.inputs.getIsPointing()) model = settleNodeDrops(model, [next.props.nodeId]);
       writeModel(model);
+    } else if (next.type === 'breadboard-edge' && previous.type === 'breadboard-edge') {
+      if (previous.props.mx === next.props.mx) return;
+      const model = structuredClone(readModel(editor));
+      model.layout ??= {}; model.layout.connections ??= {};
+      model.layout.connections[next.props.connectionId] = { x: next.x + next.props.mx };
+      writeModel(model);
     } else if (next.type === 'breadboard-slice' && previous.type === 'breadboard-slice') {
       const resized = previous.props.w !== next.props.w || previous.props.h !== next.props.h;
       if (!resized && previous.x === next.x && previous.y === next.y) return;
@@ -233,6 +253,7 @@ export function createController(editor: Editor, initial: Breadboard) {
     if (projecting) return;
     const model = readModel(editor);
     if (shape.type === 'breadboard-node' && Object.hasOwn(model.nodes, shape.props.nodeId)) writeModel(deleteNode(model, shape.props.nodeId));
+    if (shape.type === 'breadboard-edge') writeModel(deleteConnection(model, shape.props.connectionId));
     if (shape.type === 'breadboard-slice' && Object.hasOwn(model.slices ?? {}, shape.props.sliceId)) writeModel(deleteSlice(model, shape.props.sliceId));
   });
   const unlisten = editor.store.listen(() => {

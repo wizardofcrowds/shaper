@@ -6,7 +6,7 @@ import type { Affordance, Breadboard, BreadboardNode, Connection } from '../mode
 import example from '../../examples/two-paths.breadboard.yaml?raw';
 import componentExample from '../../examples/publishing.breadboard.yaml?raw';
 import sliceExample from '../../examples/slices.breadboard.yaml?raw';
-import { CanvasInteraction, createController, nodeShapeId, sliceShapeId, readModel, shapeUtils } from './canvas.tsx';
+import { CanvasInteraction, createController, edgeShapeId, nodeShapeId, sliceShapeId, readModel, shapeUtils } from './canvas.tsx';
 import type { CanvasController } from './canvas.tsx';
 import { FileDialog } from './FileDialog.tsx';
 import { inspectFile, readLocalFile, saveLocalFile } from './files.ts';
@@ -108,6 +108,7 @@ export default function App() {
   const model = useValue('shaper model', () => editor ? readModel(editor) : initial, [editor]);
   const selectedNative = useValue('shaper selection', () => {
     const selected = editor?.getOnlySelectedShape();
+    if (selected?.type === 'breadboard-edge') return `connection:${selected.props.connectionId}`;
     if (selected?.type === 'breadboard-node') return `node:${selected.props.nodeId}`;
     if (selected?.type === 'breadboard-slice') return `slice:${selected.props.sliceId}`;
     return null;
@@ -124,7 +125,7 @@ export default function App() {
     if (selectedNative) { setTab('inspect'); setRightCollapsed(false); }
     setSelection(previous => {
       if (!selectedNative) return previous?.type === 'connection' ? previous : null;
-      const [type, id] = selectedNative.split(':') as ['node' | 'slice', string];
+      const [type, id] = selectedNative.split(':') as ['node' | 'slice' | 'connection', string];
       return previous?.type === type && previous.id === id ? previous : { type, id };
     });
   }, [selectedNative]);
@@ -159,7 +160,7 @@ export default function App() {
     setTab('inspect'); setRightCollapsed(false);
   }, [editor]);
   const selectSlice = (id: string) => { editor?.select(sliceShapeId(id)); setSelection({ type: 'slice', id }); setTab('inspect'); setRightCollapsed(false); };
-  const selectConnection = (id: string) => { editor?.selectNone(); setSelection({ type: 'connection', id }); setTab('inspect'); setRightCollapsed(false); };
+  const selectConnection = (id: string) => { editor?.select(edgeShapeId(id)); setSelection({ type: 'connection', id }); setTab('inspect'); setRightCollapsed(false); };
   const update = (next: Breadboard) => {
     try { controller.current?.update(next); setNotice(null); }
     catch (error) { setNotice({ text: errorText(error), error: true }); }
@@ -435,6 +436,8 @@ export default function App() {
             }} />
             <button className="text-button" onClick={() => { const [nodeId, rowId] = connection.from.split('.'); selectNode(nodeId!, rowId); }}>Edit source affordance →</button>
             <ConnectionFields key={selection.id} connection={connection} model={model} onChange={change => edit(next => change(connectionAt(next, selection.id)))} />
+            <p className="help">Drag the arrow’s round handle left or right to route it around places. The vertical segment stays at that canvas position when places move.</p>
+            <button disabled={!model.layout?.connections?.[selection.id]} onClick={() => edit(next => { if (next.layout?.connections) delete next.layout.connections[selection.id]; })}>Reset route</button>
             <p className="help">Choose an endpoint to reconnect this path. Moving a place keeps the same endpoints.</p><button className="danger-button" onClick={deleteSelection}>Delete connection</button>
           </> : <div className="inspector-empty"><p>No component/place is selected.</p></div>}
         </div>

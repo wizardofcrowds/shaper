@@ -156,3 +156,14 @@ recognition without a working integration.
 - Missing endpoints and invalid scenario steps produce actionable findings.
 - Image extraction uncertainty remains visible until resolved by review.
 - Browser verification covers the complete first milestone, not just rendering.
+
+
+### Routing arrows
+
+Select an arrow on the canvas, or select it in the Connections tab. Drag the round
+handle at the middle of its vertical segment left or right to move the route
+around places or separate overlapping paths. The route remains horizontal →
+vertical → horizontal. Use **Reset route** in the connection inspector to return
+to automatic routing. Save stores the custom route in the breadboard YAML, and
+Undo/Redo applies to routing edits. This control moves one vertical segment;
+additional bends and automatic obstacle avoidance are not implemented.

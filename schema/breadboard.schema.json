@@ -34,6 +34,13 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "connections": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object", "required": ["x"], "additionalProperties": false,
+            "properties": {"x": {"type": "number"}}
+          }
+        },
         "slices": {
           "type": "object",
           "propertyNames": {"$ref": "#/$defs/id"},

@@ -138,6 +138,7 @@ export function deleteConnection(model: Breadboard, id: string): Breadboard {
   const [nodeId, rowId, key] = id.split('.') as [string, string, string];
   const row = result.nodes[nodeId]!.affordances[rowId]!;
   delete row.connections![key];
+  if (result.layout?.connections) delete result.layout.connections[id];
   if (!Object.keys(row.connections!).length) delete row.connections;
   return result;
 }
@@ -152,6 +153,10 @@ export function moveConnection(model: Breadboard, id: string, from: string): { m
   row.connections ??= {};
   const key = uniqueId(row.connections, id.split('.')[2]!);
   row.connections[key] = connection;
+  if (model.layout?.connections?.[id]) {
+    result.layout!.connections ??= {};
+    result.layout!.connections[`${from}.${key}`] = structuredClone(model.layout.connections[id]);
+  }
   return { model: result, id: `${from}.${key}` };
 }
 
@@ -182,10 +187,13 @@ export function edgeGeometry(model: Breadboard): EdgeGeometry[] {
     const sx = source.x + NODE_WIDTH + 5;
     const sy = source.y + rowY(sourceId, sourceRow);
     const backwards = target.x <= source.x;
-    const ex = target.x + (backwards ? NODE_WIDTH + 5 : -5);
+    const routeX = model.layout?.connections?.[id]?.x;
+    const enterFromRight = routeX === undefined ? backwards : routeX >= target.x + NODE_WIDTH / 2;
+    const ex = target.x + (enterFromRight ? NODE_WIDTH + 5 : -5);
     const ey = target.y + (targetRow ? rowY(targetId, targetRow) : 48);
-    const mx = backwards ? Math.max(sx, ex) + 70 : (sx + ex) / 2;
-    const x = Math.min(sx, ex) - 12, y = Math.min(sy, ey) - 12;
+    const mx = routeX ?? (backwards ? Math.max(sx, ex) + 70 : (sx + ex) / 2);
+    // Keep the shape origin stable while dragging across destination sides.
+    const x = Math.min(sx, target.x - 5) - 12, y = Math.min(sy, ey) - 12;
     return [{ id, connection, x, y, sx: sx - x, sy: sy - y, mx: mx - x, ex: ex - x, ey: ey - y }];
   });
 }

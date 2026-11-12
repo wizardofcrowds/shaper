@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { BreadboardError, parseBreadboard, writeBreadboard } from '../src/index.ts';
-import { addAffordance, addNode, affordanceIds, checkBreadboard, connect, connectionAt, connections, deleteAffordance, deleteConnection, deleteNode, edgeGeometry, moveAffordance, moveConnection, uniqueId, withLayout } from '../src/editor/model.ts';
+import { addAffordance, addNode, affordanceIds, checkBreadboard, connect, connectionAt, connections, deleteAffordance, deleteConnection, deleteNode, edgeGeometry, moveAffordance, moveConnection, NODE_WIDTH, uniqueId, withLayout } from '../src/editor/model.ts';
 
 const fresh = () => withLayout(parseBreadboard(readFileSync(new URL('../examples/two-paths.breadboard.yaml', import.meta.url), 'utf8')));
 
@@ -187,4 +187,54 @@ test('deleting a source node removes its owned paths but preserves incoming path
   const removedNode = deleteNode(created.model, 'home');
   assert.equal(connections(removedNode).length, 0);
   assert.ok(checkBreadboard(removedNode).some(finding => finding.ref === 'take_second_path'));
+});
+
+test('custom connection routes round-trip, keep endpoints attached, and reset to automatic routing', () => {
+  const original = fresh();
+  const automatic = edgeGeometry(original)[0]!;
+  const id = automatic.id;
+  const routed = structuredClone(original);
+  routed.layout!.connections = { [id]: { x: 1200 } };
+  const reopened = parseBreadboard(writeBreadboard(routed));
+  assert.deepEqual(reopened, routed);
+  const geometry = edgeGeometry(reopened).find(edge => edge.id === id)!;
+  assert.equal(geometry.x + geometry.mx, 1200);
+  assert.equal(geometry.x + geometry.sx, automatic.x + automatic.sx);
+  const target = geometry.connection.to.split('.')[0]!;
+  assert.equal(geometry.x + geometry.ex, reopened.layout!.nodes![target]!.x + NODE_WIDTH + 5, 'a lane on the right enters the destination from its right edge');
+  assert.deepEqual(reopened.nodes, original.nodes, 'routing does not change graph semantics');
+
+  const source = geometry.connection.from.split('.')[0]!;
+  reopened.layout!.nodes![source]!.x += 100;
+  reopened.layout!.nodes![source]!.y += 70;
+  const moved = edgeGeometry(reopened).find(edge => edge.id === id)!;
+  assert.equal(moved.x + moved.mx, 1200, 'manual lane stays fixed when a place moves');
+  assert.equal(moved.x + moved.sx, geometry.x + geometry.sx + 100);
+  assert.equal(moved.y + moved.sy, geometry.y + geometry.sy + 70);
+
+  delete routed.layout!.connections![id];
+  assert.deepEqual(edgeGeometry(routed), edgeGeometry(original));
+  assert.equal(original.layout!.connections, undefined, 'legacy files need no migration');
+});
+
+test('routes follow a changed source and disappear with a deleted connection', () => {
+  const model = fresh();
+  const id = connections(model)[0]!.id;
+  model.layout!.connections = { [id]: { x: -240 } };
+  const moved = moveConnection(model, id, 'home.path_two');
+  assert.notEqual(moved.id, id);
+  assert.deepEqual(moved.model.layout!.connections![moved.id], { x: -240 });
+  assert.equal(moved.model.layout!.connections![id], undefined);
+  const geometry = edgeGeometry(moved.model).find(edge => edge.id === moved.id)!;
+  assert.equal(geometry.x + geometry.mx, -240);
+  const deleted = deleteConnection(moved.model, moved.id);
+  assert.equal(deleted.layout!.connections![moved.id], undefined);
+  assert.deepEqual(parseBreadboard(writeBreadboard(deleted)), deleted);
+});
+
+test('connection route coordinates must be numbers', () => {
+  const yaml = writeBreadboard(fresh());
+  const model = parseBreadboard(yaml);
+  model.layout!.connections = { 'home.path_one.first_path': { x: 'right' as unknown as number } };
+  assert.throws(() => writeBreadboard(model), BreadboardError);
 });

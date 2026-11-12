@@ -114,6 +114,23 @@ meaning; they survive editing and saving like other node fields.
 `layout.nodes` stores optional x/y positions keyed by node ID. Missing positions
 receive an initial automatic arrangement. Semantic checks ignore positions.
 
+`layout.connections` optionally stores manual routing by fully qualified connection
+ID (`node.affordance.connection`). Each entry has an `x` coordinate for the
+vertical segment in canvas coordinates:
+
+```yaml
+layout:
+  connections:
+    home.path_one.first_path: { x: 720 }
+```
+
+Without an entry, the arrow uses automatic routing. Endpoints follow their nodes;
+a manual vertical segment stays at its saved x position. The destination attaches
+to the side facing the route. Resetting a route removes its entry. Reassigning a
+connection's source transfers its route to the new connection ID. Routing does
+not change graph meaning. Existing YAML files require no migration; files saved
+with this optional field require a Shaper version that supports it.
+
 `metadata` may hold application-specific information. Preserve it and all
 undisplayed scenarios when saving. Unknown keys outside `metadata` are validation
 errors, so misspellings do not silently disappear.
