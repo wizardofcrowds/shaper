@@ -12,7 +12,7 @@ reference and scenario checks; JSON Schema alone cannot validate graph topology.
 - `affordances`: named things available at a node. Kinds are `action`, `input`,
   `copy`, `capability`, and `event`.
 - Each affordance may have a `connections` mapping of local IDs to directed
-  edges to a node or another affordance. Kinds are `navigate`, `invoke`, `emit`, `read`, and `write`.
+  edges to a node or another affordance. Kinds are `navigate`, `detour`, `invoke`, `emit`, `read`, and `write`.
 - `scenarios`: a goal, starting node, ordered affordance references, and ending node.
   These are proposed walkthroughs; they are not proof of successful execution.
 
@@ -23,7 +23,8 @@ letter. Labels can change without changing IDs. Affordance references use
 
 Connections are nested under their source affordance; no `from` field is stored.
 Omit `connections` or use `{}` when an affordance has no outgoing paths. Each
-connection requires `to` and `kind`, with optional `label` and `metadata`.
+connection requires `to` and `kind`, with optional `label`, `metadata`, and a
+`login` requirement for navigation.
 Connection IDs are unique within their owning affordance. The editor derives
 `node_id.affordance_id.connection_id` to identify an edge across the graph; the
 same local ID may appear under another affordance. Multiple entries represent
@@ -173,3 +174,125 @@ those semantics when a real component scenario needs them.
 
 Use-case fit remains a reasoned assessment against the scenario's `goal` and any
 requirements supplied alongside it. A connected graph alone does not establish fit.
+
+## Component data and associations
+
+A component may hold named domain data elements in `data`. Data is optional;
+components can expose capabilities without holding data. Places cannot contain
+data elements. Data names and affordance names are separate ID namespaces.
+
+```yaml
+nodes:
+  ordering:
+    kind: component
+    label: Ordering
+    affordances:
+      place_order: { kind: capability, label: Place order }
+    data:
+      order: { label: Order }
+  explorations:
+    kind: component
+    label: Explorations
+    affordances: {}
+    data:
+      exploration: { label: Guided Exploration }
+associations:
+  purchased_explorations:
+    from: ordering.order
+    to: explorations.exploration
+    label: contains purchased explorations
+    from_cardinality: '1'
+    to_cardinality: '0..*'
+```
+
+Each association has a stable document-wide ID and two `component.data` references.
+It describes structure, not an invocation, navigation step, or foreign key. The
+optional label describes the relationship from `from` to `to`; cardinality at each
+end can be `1`, `0..1`, `0..*`, or `1..*`. Omit a cardinality to leave it undecided.
+Data elements and associations support optional `metadata`. Data elements may
+also list optional named `attributes` (see below). Database types and persistence
+details are outside this feature.
+
+Associations cannot target affordances, and behavioral connections cannot target
+data. Checks reports missing data references separately from behavioral checks;
+associations do not participate in scenarios. Deleting data or its component
+retains its associations for review, while unresolved lines are omitted from the
+canvas. Renaming a data label preserves its stable references.
+
+`layout.associations` optionally stores `{ x: number }` routing entries keyed by
+association ID, independently of `layout.connections`. Removing an association
+also removes its saved route. Existing documents without these fields need no
+migration. Documents using the new fields need an updated Shaper reader.
+
+
+### Embedded data attributes
+
+A data element can include an optional ordered list of attribute names:
+
+```yaml
+data:
+  line_item:
+    label: LineItem
+    attributes: [order_id, quantity, unit_price]
+```
+
+Names must be nonblank strings, unique within that element. The editor trims
+names when adding or renaming them; it preserves their list order. Omitting
+`attributes` leaves the existing compact data element unchanged. Attribute names
+are displayed beneath their data element; they are not reference IDs or ports.
+Associations still reference `component.data`, never an attribute. Renaming or
+removing an attribute therefore does not rewire any association. No types, keys,
+or relationships are inferred from names such as `order_id`.
+
+
+## Login requirements and detours
+
+A navigation connection can require login without drawing another edge to the
+login place:
+
+```yaml
+affordances:
+  show_article:
+    kind: action
+    label: Show article
+    connections:
+      detail:
+        kind: navigate
+        to: article_detail
+        login:
+          via: member_login
+```
+
+The canvas shows a **Login required** badge on the connection. A signed-in user
+continues directly to the destination. Otherwise, the modeled flow visits the
+login place, then resumes the original destination with its selected-item/task
+context. Cancellation leaves the caller at the source place. `login: {}` records
+the requirement while leaving the login place undecided; Checks reports a warning.
+`login.via`, when specified, must reference a place. Login requirements apply only
+to `navigate` connections targeting whole places.
+
+Optional interruptions use a separate connection kind:
+
+```yaml
+affordances:
+  member_login:
+    kind: action
+    label: Member Login
+    connections:
+      login:
+        kind: detour
+        to: member_login
+```
+
+A detour visits its target place and returns to the source place after completion
+or cancellation, preserving the calling task and entered information. The return
+place is inferred from the connection's owner; no fixed return edge is stored.
+Moving the connection to another owner changes its caller. Detours are not
+restricted to login. They must target a whole place and cannot carry a `login`
+requirement. Their canvas labels include “detour · returns here” unless a custom
+label is set.
+
+These are design annotations, not authentication execution or persisted runtime
+context. The scenario checker reports gated navigation and detours as needing
+explicit outcome semantics rather than assuming authentication succeeded. Existing
+connections without these additions retain their previous behavior.

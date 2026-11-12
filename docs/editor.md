@@ -167,3 +167,77 @@ vertical → horizontal. Use **Reset route** in the connection inspector to retu
 to automatic routing. Save stores the custom route in the breadboard YAML, and
 Undo/Redo applies to routing edits. This control moves one vertical segment;
 additional bends and automatic obstacle avoidance are not implemented.
+
+### Data inside components
+
+Select a component and use **+** beside **Data elements**. Enter a domain name
+such as Order or Guided Exploration. Data appears in a distinct DATA row below
+the component's affordances; clicking the row opens its component inspector.
+Components do not require data, and data elements have no behavior ports.
+
+Under a data element, choose **Add association**, select the related data element,
+and create the association. Its inspector lets you edit both endpoints, the label,
+and each end's cardinality. Cardinalities can remain unspecified. For example,
+Order (1) — Guided Exploration (0..*) describes an order with many explorations.
+The related element may belong to another component or the same component.
+
+Associations appear as dashed lines without arrowheads and are also listed in the
+Connections tab under **Data associations**. Select a line to edit it; drag its
+round handle to adjust the vertical segment or use **Reset route**. Data and
+associations are saved in YAML and participate in Undo/Redo. Deleting referenced
+data leaves an issue in Checks so you can reconnect or remove the association.
+
+
+A component can contain several data elements: add Order and LineItem under
+Ordering, then use Order's **Add association** and choose LineItem under
+**Same component**. Set the label to “contains”, source cardinality to **One**,
+and related cardinality to **Many**. The line routes outside the component's
+right edge, joining the two DATA rows. Its handle cannot be dragged through the
+component. Choose **Order and line items** in Examples to try this arrangement.
+Attributes can be listed inside each data element; association endpoints remain
+on whole data elements.
+
+
+Under each data element, use **+** beside **Attributes**, type a name such as
+`order_id`, and choose **Add attribute**. The field starts empty with a placeholder.
+You can rename attributes in their fields or remove one with its **×** button.
+Attributes appear as indented rows on the canvas, in the order added. They are
+saved in YAML and participate in Undo/Redo. Association lines stay attached to
+the data element's header as its attribute list grows.
+
+
+Read connections use thin black dotted lines; write connections use thin orange
+dotted lines. Both retain matching arrowheads to show direction. Navigation,
+invocation, and event connections use solid lines; data associations use longer
+dashes without arrowheads. This styling is derived from the connection kind and
+requires no changes to existing YAML files.
+
+
+### Login badges and optional detours
+
+Select a navigation connection and enable **Login required**. Choose its **Login
+place**, or leave it unspecified while shaping. The line to the intended destination
+gets a small badge; no extra arrow to the login place is drawn. The requirement
+and login-place reference are preserved in YAML. Checks flags missing login places.
+
+For **Member Login** in **Payment Method & Contact**, connect the affordance to the
+login place and choose connection kind **detour**. The inspector explains that
+completion or cancellation returns to the calling place with its task information
+retained. The same pattern works for other optional interruptions. This differs
+from required login, which continues to the intended destination after success.
+
+Try **Login and detours** in Examples to see both patterns. These settings describe
+the intended product flow; Shaper does not perform authentication or redirects.
+
+### Filtering connection destinations
+
+Type in the search field above **To place or affordance** to narrow the destination
+list by name or semantic ID. Search ignores case, and multiple words narrow the
+results further. The current destination remains visible even when it does not
+match; typing never changes a connection. Choose a matching option to reconnect.
+Clear the search with **×** or Escape to restore all choices. The same filter is
+available for **From affordance** and place-only destination pickers.
+
+
+The left Places and components pane starts collapsed. Use **Show left pane** in
+the document toolbar to open it, and **Hide left pane** to collapse it again.

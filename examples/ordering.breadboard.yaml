@@ -1,0 +1,42 @@
+version: '0.1'
+title: Ordering — data and behavior
+nodes:
+  checkout:
+    kind: place
+    label: Checkout
+    affordances:
+      submit:
+        kind: action
+        label: Place order
+        connections:
+          place_order:
+            to: ordering.place_order
+            kind: invoke
+  ordering:
+    kind: component
+    label: Ordering
+    affordances:
+      place_order:
+        kind: capability
+        label: Place order
+      cancel_order:
+        kind: capability
+        label: Cancel order
+    data:
+      order:
+        label: Order
+        attributes: [id, status]
+      line_item:
+        label: LineItem
+        attributes: [order_id, quantity]
+associations:
+  order_items:
+    from: ordering.order
+    to: ordering.line_item
+    label: contains
+    from_cardinality: '1'
+    to_cardinality: '0..*'
+layout:
+  nodes:
+    checkout: {x: 0, y: 0}
+    ordering: {x: 480, y: 0}

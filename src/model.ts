@@ -15,6 +15,17 @@ export interface Affordance {
   metadata?: Metadata;
 }
 
+export interface DataElement { label: string; attributes?: string[]; metadata?: Metadata }
+export type Cardinality = '1' | '0..1' | '0..*' | '1..*';
+export interface Association {
+  from: string;
+  to: string;
+  label?: string;
+  from_cardinality?: Cardinality;
+  to_cardinality?: Cardinality;
+  metadata?: Metadata;
+}
+
 export interface BreadboardNode {
   kind: 'place' | 'component';
   label: string;
@@ -22,6 +33,7 @@ export interface BreadboardNode {
   slice?: string;
   affordances: Record<string, Affordance>;
   affordance_order?: string[];
+  data?: Record<string, DataElement>;
   metadata?: Metadata;
 }
 
@@ -33,7 +45,9 @@ export interface SliceBounds { x: number; y: number; w: number; h: number }
 
 export interface Connection {
   to: string;
-  kind: 'navigate' | 'invoke' | 'emit' | 'read' | 'write';
+  kind: 'navigate' | 'detour' | 'invoke' | 'emit' | 'read' | 'write';
+  /** Presence means navigation requires login; via may be left undecided while shaping. */
+  login?: { via?: string };
   label?: string;
   metadata?: Metadata;
 }
@@ -53,7 +67,8 @@ export interface Breadboard {
   title: string;
   nodes: Record<string, BreadboardNode>;
   slices?: Record<string, BreadboardSlice>;
+  associations?: Record<string, Association>;
   scenarios?: Scenario[];
-  layout?: { connections?: Record<string, { x: number }>; nodes?: Record<string, { x: number; y: number }>; slices?: Record<string, SliceBounds> };
+  layout?: { associations?: Record<string, { x: number }>; connections?: Record<string, { x: number }>; nodes?: Record<string, { x: number; y: number }>; slices?: Record<string, SliceBounds> };
   metadata?: Metadata;
 }

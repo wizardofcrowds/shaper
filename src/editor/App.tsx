@@ -1,3 +1,7 @@
+import { ReferenceSelect } from './ReferenceSelect.tsx';
+import { DataPanel, AssociationFields } from './DataPanel.tsx';
+import { deleteAssociation } from './data.ts';
+import { Field } from './Field.tsx';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Tldraw, useValue } from 'tldraw';
 import type { Editor } from 'tldraw';
@@ -6,7 +10,9 @@ import type { Affordance, Breadboard, BreadboardNode, Connection } from '../mode
 import example from '../../examples/two-paths.breadboard.yaml?raw';
 import componentExample from '../../examples/publishing.breadboard.yaml?raw';
 import sliceExample from '../../examples/slices.breadboard.yaml?raw';
-import { CanvasInteraction, createController, edgeShapeId, nodeShapeId, sliceShapeId, readModel, shapeUtils } from './canvas.tsx';
+import orderingExample from '../../examples/ordering.breadboard.yaml?raw';
+import loginExample from '../../examples/login.breadboard.yaml?raw';
+import { CanvasInteraction, createController, associationShapeId, edgeShapeId, nodeShapeId, sliceShapeId, readModel, shapeUtils } from './canvas.tsx';
 import type { CanvasController } from './canvas.tsx';
 import { FileDialog } from './FileDialog.tsx';
 import { inspectFile, readLocalFile, saveLocalFile } from './files.ts';
@@ -16,7 +22,7 @@ import { NODE_COLORS } from '../colors.ts';
 import { nodeColorStyle } from './colors.ts';
 import { addAffordance, addNode, affordanceIds, checkBreadboard, connect, connectionAt, connections, deleteAffordance, deleteConnection, deleteNode, moveAffordance, moveConnection, withLayout } from './model.ts';
 
-type Selection = { type: 'node'; id: string; row?: string } | { type: 'connection'; id: string } | { type: 'slice'; id: string } | null;
+type Selection = { type: 'node'; id: string; row?: string } | { type: 'connection' | 'association'; id: string } | { type: 'slice'; id: string } | null;
 type Notice = { text: string; error?: boolean } | null;
 const initial = withLayout(parseBreadboard(example));
 const components = { ContextMenu: null };
@@ -28,7 +34,7 @@ function rememberFile(path: string | null) {
   window.history.replaceState(window.history.state, '', url);
 }
 const affordanceKinds: Affordance['kind'][] = ['action', 'input', 'copy', 'capability', 'event'];
-const connectionKinds: Connection['kind'][] = ['navigate', 'invoke', 'emit', 'read', 'write'];
+const connectionKinds: Connection['kind'][] = ['navigate', 'detour', 'invoke', 'emit', 'read', 'write'];
 
 function errorText(error: unknown): string {
   if (error instanceof BreadboardError) return error.issues.map(issue => `${issue.line ? `Line ${issue.line}, column ${issue.column}: ` : `${issue.path || '/'}: `}${issue.message}`).join('\n');
@@ -54,13 +60,6 @@ function Icon({ name }: { name: string }) {
   return <svg aria-hidden="true" viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d={paths[name] ?? paths.plus} /></svg>;
 }
 
-function Field({ label, value, onCommit, multiline = false, placeholder }: { label: string; value: string; onCommit: (value: string) => void; multiline?: boolean; placeholder?: string }) {
-  const [draft, setDraft] = useState(value);
-  const cancelled = useRef(false);
-  useEffect(() => setDraft(value), [value]);
-  const props = { 'aria-label': label, placeholder, value: draft, onChange: (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setDraft(event.target.value), onBlur: () => { if (cancelled.current) { cancelled.current = false; return; } if (draft !== value) onCommit(draft); }, onKeyDown: (event: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => { if (event.key === 'Enter' && !multiline) event.currentTarget.blur(); if (event.key === 'Escape') { cancelled.current = true; setDraft(value); event.currentTarget.blur(); } } };
-  return <label className="field"><span>{label}</span>{multiline ? <textarea rows={2} {...props} /> : <input {...props} />}</label>;
-}
 
 function endpointLabel(model: Breadboard, ref: string): string {
   const [node, row] = ref.split('.') as [string, string | undefined];
@@ -70,18 +69,23 @@ function endpointLabel(model: Breadboard, ref: string): string {
   return entry.label;
 }
 
-function ReferenceSelect({ label, value, model, source, onChange }: { label: string; value: string; model: Breadboard; source?: boolean; onChange: (ref: string) => void }) {
-  const refs = Object.entries(model.nodes).flatMap(([nodeId, node]) => [...(source ? [] : [{ id: nodeId, label: node.label }]), ...Object.entries(node.affordances).map(([id, row]) => ({ id: `${nodeId}.${id}`, label: `${node.label} / ${row.label}` }))]);
-  return <label className="field"><span>{label}</span><select value={value} onChange={event => onChange(event.target.value)}>
-    {!refs.some(ref => ref.id === value) && <option value={value}>{value} (missing)</option>}
-    {refs.map(ref => <option key={ref.id} value={ref.id}>{ref.label}</option>)}
-  </select></label>;
-}
 
-function ConnectionFields({ connection, model, onChange }: { connection: Connection; model: Breadboard; onChange: (change: (edge: Connection) => void) => void }) {
+function ConnectionFields({ connection, model, source, onChange }: { connection: Connection; source: string; model: Breadboard; onChange: (change: (edge: Connection) => void) => void }) {
   return <>
-    <ReferenceSelect label="To place or affordance" model={model} value={connection.to} onChange={to => onChange(edge => { edge.to = to; })} />
-    <label className="field"><span>Connection kind</span><select value={connection.kind} onChange={event => onChange(edge => { edge.kind = event.target.value as Connection['kind']; })}>{connectionKinds.map(kind => <option key={kind}>{kind}</option>)}</select></label>
+    <ReferenceSelect label={connection.kind === 'detour' || connection.login ? 'To place' : 'To place or affordance'} placesOnly={connection.kind === 'detour' || Boolean(connection.login)} model={model} value={connection.to} onChange={to => onChange(edge => { edge.to = to; })} />
+    <label className="field"><span>Connection kind</span><select aria-label="Connection kind" value={connection.kind} onChange={event => onChange(edge => { edge.kind = event.target.value as Connection['kind']; if (edge.kind !== 'navigate') delete edge.login; })}>{connectionKinds.map(kind => <option key={kind}>{kind}</option>)}</select></label>
+    {connection.kind === 'navigate' && <>
+      <label className="login-toggle"><input type="checkbox" checked={Boolean(connection.login)} onChange={event => onChange(edge => { if (event.target.checked) edge.login = {}; else delete edge.login; })} />Login required</label>
+      {connection.login && <>
+        <label className="field"><span>Login place</span><select aria-label="Login place" value={connection.login.via ?? ''} onChange={event => onChange(edge => { edge.login = event.target.value ? { via: event.target.value } : {}; })}>
+          <option value="">Not specified yet</option>
+          {connection.login.via && model.nodes[connection.login.via]?.kind !== 'place' && <option value={connection.login.via}>{connection.login.via} (unavailable)</option>}
+          {Object.entries(model.nodes).filter(([, node]) => node.kind === 'place').map(([id, node]) => <option value={id} key={id}>{node.label}</option>)}
+        </select></label>
+        <p className="help">If signed out, log in first, then continue to this destination with the selected item. Cancel stays at {model.nodes[source]?.label ?? source}. No extra login arrow is drawn.</p>
+      </>}
+    </>}
+    {connection.kind === 'detour' && <p className="help">Visit this place, then return to {model.nodes[source]?.label ?? source} after completion or cancellation, keeping the current task and entered information. Use this for optional member login.</p>}
     <Field label="Connection label (optional)" value={connection.label ?? ''} onCommit={value => onChange(edge => { if (value) edge.label = value; else delete edge.label; })} />
   </>;
 }
@@ -90,9 +94,10 @@ export default function App() {
   const [editor, setEditor] = useState<Editor | null>(null);
   const controller = useRef<CanvasController | null>(null);
   const [selection, setSelection] = useState<Selection>(null);
+  const [unlabeledNodes, setUnlabeledNodes] = useState<Set<string>>(() => new Set());
   const [unlabeledAffordances, setUnlabeledAffordances] = useState<Set<string>>(() => new Set());
   const [pending, setPending] = useState<string | null>(null);
-  const [leftCollapsed, setLeftCollapsed] = useState(() => window.matchMedia('(max-width: 850px)').matches);
+  const [leftCollapsed, setLeftCollapsed] = useState(true);
   const [rightCollapsed, setRightCollapsed] = useState(false);
   const [tab, setTab] = useState<'inspect' | 'connections' | 'checks'>('inspect');
   const [notice, setNotice] = useState<Notice>(null);
@@ -108,7 +113,7 @@ export default function App() {
   const model = useValue('shaper model', () => editor ? readModel(editor) : initial, [editor]);
   const selectedNative = useValue('shaper selection', () => {
     const selected = editor?.getOnlySelectedShape();
-    if (selected?.type === 'breadboard-edge') return `connection:${selected.props.connectionId}`;
+    if (selected?.type === 'breadboard-edge') return `${selected.props.association ? 'association' : 'connection'}:${selected.props.connectionId}`;
     if (selected?.type === 'breadboard-node') return `node:${selected.props.nodeId}`;
     if (selected?.type === 'breadboard-slice') return `slice:${selected.props.sliceId}`;
     return null;
@@ -124,8 +129,8 @@ export default function App() {
   useEffect(() => {
     if (selectedNative) { setTab('inspect'); setRightCollapsed(false); }
     setSelection(previous => {
-      if (!selectedNative) return previous?.type === 'connection' ? previous : null;
-      const [type, id] = selectedNative.split(':') as ['node' | 'slice' | 'connection', string];
+      if (!selectedNative) return previous?.type === 'connection' || previous?.type === 'association' ? previous : null;
+      const [type, id] = selectedNative.split(':') as ['node' | 'slice' | 'connection' | 'association', string];
       return previous?.type === type && previous.id === id ? previous : { type, id };
     });
   }, [selectedNative]);
@@ -140,7 +145,7 @@ export default function App() {
       const next = withLayout(parseBreadboard(opened.text));
       controller.current?.load(next);
       setSaved(writeBreadboard(next)); setFilename(opened.name); setFileTarget(opened);
-      setSelection(null); setPending(null); setUnlabeledAffordances(new Set()); setNotice(null);
+      setSelection(null); setPending(null); setUnlabeledAffordances(new Set()); setUnlabeledNodes(new Set()); setNotice(null);
       setLastDirectory(opened.path.slice(0, opened.path.lastIndexOf('/')) || '/');
       rememberFile(opened.path);
     }).catch(error => {
@@ -160,6 +165,7 @@ export default function App() {
     setTab('inspect'); setRightCollapsed(false);
   }, [editor]);
   const selectSlice = (id: string) => { editor?.select(sliceShapeId(id)); setSelection({ type: 'slice', id }); setTab('inspect'); setRightCollapsed(false); };
+  const selectAssociation = (id: string) => { editor?.select(associationShapeId(id)); setSelection({ type: 'association', id }); setTab('inspect'); setRightCollapsed(false); };
   const selectConnection = (id: string) => { editor?.select(edgeShapeId(id)); setSelection({ type: 'connection', id }); setTab('inspect'); setRightCollapsed(false); };
   const update = (next: Breadboard) => {
     try { controller.current?.update(next); setNotice(null); }
@@ -195,7 +201,7 @@ export default function App() {
       if (dirty && !window.confirm('Replace this breadboard and discard unsaved changes? Cancel to return and save them first.')) return false;
       controller.current?.load(next);
       rememberFile(target?.path ?? null);
-      setSaved(writeBreadboard(next)); setFilename(name); setFileTarget(target); setSelection(null); setPending(null); setUnlabeledAffordances(new Set()); setNotice(null);
+      setSaved(writeBreadboard(next)); setFilename(name); setFileTarget(target); setSelection(null); setPending(null); setUnlabeledAffordances(new Set()); setUnlabeledNodes(new Set()); setNotice(null);
       return true;
     } catch (error) { setNotice({ text: errorText(error), error: true }); return false; }
   }
@@ -223,7 +229,9 @@ export default function App() {
     if (!editor) return;
     const center = editor.getViewportPageBounds().center;
     const result = addNode(model, kind, { x: Math.round(center.x - 150), y: Math.round(center.y - 70) });
-    update(settleNodeDrops(result.model, [result.id])); selectNode(result.id);
+    update(settleNodeDrops(result.model, [result.id]));
+    setUnlabeledNodes(previous => new Set(previous).add(result.id));
+    selectNode(result.id);
   }
 
   function createSlice() {
@@ -250,12 +258,14 @@ export default function App() {
     try {
       if (selection.type === 'slice') {
         update(deleteSlice(model, selection.id)); setSelection(null); editor?.selectNone();
+      } else if (selection.type === 'association') {
+        update(deleteAssociation(model, selection.id)); setSelection(null); editor?.selectNone();
       } else if (selection.type === 'connection') {
         update(deleteConnection(model, selection.id)); setSelection(null);
-      } else if (selection.row) {
+      } else if (selection.type === 'node' && selection.row) {
         const row = selection.row;
         update(deleteAffordance(model, selection.id, row)); selectNode(selection.id); setTab('checks');
-      } else {
+      } else if (selection.type === 'node') {
         update(deleteNode(model, selection.id)); setSelection(null); editor?.selectNone(); setTab('checks');
       }
     } catch (error) { setNotice({ text: errorText(error), error: true }); }
@@ -284,6 +294,9 @@ export default function App() {
   const row = selection?.type === 'node' && selection.row ? node?.affordances[selection.row] : undefined;
   const slice = selection?.type === 'slice' ? model.slices?.[selection.id] : undefined;
   const connection = selection?.type === 'connection' ? graphConnections.find(edge => edge.id === selection.id) : undefined;
+  const association = selection?.type === 'association' ? model.associations?.[selection.id] : undefined;
+  const associationComponentId = association?.from.split('.')[0];
+  const associationComponent = associationComponentId ? model.nodes[associationComponentId] : undefined;
 
   return <div className="app-shell">
     <header className="app-header">
@@ -325,13 +338,16 @@ export default function App() {
         <div className="panel-heading slice-list-heading"><span>SLICES</span><button className="tiny-button" aria-label="Add slice" onClick={createSlice}><Icon name="plus" /></button></div>
         {Object.entries(model.slices ?? {}).map(([id, entry]) => <button key={id} className={`nav-item ${selection?.type === 'slice' && selection.id === id ? 'active' : ''}`} onClick={() => selectSlice(id)}><span className="slice-symbol" /><span><span className="nav-label">{entry.label}</span><small>{sliceMembers(model, id).length} {sliceMembers(model, id).length === 1 ? 'member' : 'members'}</small></span></button>)}
         {!Object.keys(model.slices ?? {}).length && <p className="help slice-list-help">Group places and components around a useful outcome.</p>}
-        <div className="navigator-footer"><span>EXAMPLES</span><button disabled={fileBusy} onClick={() => replaceDocument(example, 'two-paths.breadboard.yaml')}>Two paths from Home ↗</button><button disabled={fileBusy} onClick={() => replaceDocument(componentExample, 'publishing.breadboard.yaml')}>Component interaction ↗</button><button disabled={fileBusy} onClick={() => replaceDocument(sliceExample, 'slices.breadboard.yaml')}>Sliced journey ↗</button></div>
+        <div className="navigator-footer"><span>EXAMPLES</span><button disabled={fileBusy} onClick={() => replaceDocument(example, 'two-paths.breadboard.yaml')}>Two paths from Home ↗</button><button disabled={fileBusy} onClick={() => replaceDocument(componentExample, 'publishing.breadboard.yaml')}>Component interaction ↗</button><button disabled={fileBusy} onClick={() => replaceDocument(sliceExample, 'slices.breadboard.yaml')}>Sliced journey ↗</button><button disabled={fileBusy} onClick={() => replaceDocument(orderingExample, 'ordering.breadboard.yaml')}>Order and line items ↗</button><button disabled={fileBusy} onClick={() => replaceDocument(loginExample, 'login.breadboard.yaml')}>Login and detours ↗</button></div>
       </aside>
 
       <section className="canvas-region" aria-label="Breadboard canvas">
         {!pending && <div className="canvas-create-tools"><button onClick={() => createNode('place')}><Icon name="plus" />Place</button><button onClick={() => createNode('component')}><Icon name="plus" />Component</button><button onClick={createSlice}><Icon name="plus" />Slice</button></div>}
         {pending && <div className="connect-banner"><span>Connect <strong>{endpointLabel(model, pending)}</strong> · choose a heading or affordance</span><button onClick={() => setPending(null)}>Cancel</button></div>}
-        <CanvasInteraction.Provider value={{ pending, selectedRow: selection?.type === 'node' && selection.row ? `${selection.id}.${selection.row}` : null, select: selectNode, startConnection: ref => { setPending(ref); setNotice(null); }, target: ref => { if (pending) createConnection(pending, ref); } }}>
+        <CanvasInteraction.Provider value={{ pending, selectedRow: selection?.type === 'node' && selection.row ? `${selection.id}.${selection.row}` : null, select: selectNode, selectData: (nodeId, id) => {
+          selectNode(nodeId);
+          requestAnimationFrame(() => document.getElementById(`data-element-${nodeId}.${id}`)?.scrollIntoView({ block: 'nearest' }));
+        }, startConnection: ref => { setPending(ref); setNotice(null); }, target: ref => { if (pending) createConnection(pending, ref); } }}>
           <Tldraw hideUi shapeUtils={shapeUtils} components={components} onMount={mounted => {
             const canvas = createController(mounted, initial);
             controller.current = canvas; setEditor(mounted);
@@ -350,6 +366,10 @@ export default function App() {
             <p className="help">Select a path to change its source, destination, or kind.</p>
             {graphConnections.map(edge => <button key={edge.id} className="inspector-row" onClick={() => selectConnection(edge.id)}><span>{endpointLabel(model, edge.from)} → {endpointLabel(model, edge.to)}</span><small>{edge.kind} · {edge.id}</small></button>)}
             {!graphConnections.length && <p className="help">Choose an affordance’s + port on the canvas, then choose its destination.</p>}
+            <div className="section-heading"><h3>Data associations</h3></div>
+            <p className="help">Dashed lines connect data elements; they do not describe actions or navigation.</p>
+            {Object.entries(model.associations ?? {}).map(([id, entry]) => <button className="inspector-row" key={id} onClick={() => selectAssociation(id)}><span>{entry.label || `${entry.from} — ${entry.to}`}</span><small>{entry.from_cardinality ?? '?'} — {entry.to_cardinality ?? '?'}</small></button>)}
+            {!Object.keys(model.associations ?? {}).length && <p className="help">Add data elements in a component to associate them.</p>}
           </> : tab === 'checks' ? <>
             <div className="section-eyebrow">STRUCTURE & SCENARIOS</div><h2>{errors ? `${errors} ${errors === 1 ? 'issue' : 'issues'} to resolve` : 'Structure looks connected'}</h2>
             <p className="help">These checks follow references and navigation scenarios. They do not establish whether the design meets its user’s needs.</p>
@@ -384,7 +404,7 @@ export default function App() {
                 const id = `${selection.id}.${selection.row}.${key}`;
                 return <section className="connection-card" aria-label={`Connection ${key}`} key={id}>
                   <code className="semantic-id">{key}</code>
-                  <ConnectionFields connection={edge} model={model} onChange={change => edit(next => change(connectionAt(next, id)))} />
+                  <ConnectionFields connection={edge} model={model} source={selection.id} onChange={change => edit(next => change(connectionAt(next, id)))} />
                   <button className="danger-button" onClick={() => update(deleteConnection(model, id))}>Delete connection</button>
                 </section>;
               })}
@@ -401,8 +421,11 @@ export default function App() {
                 <button disabled={affordanceIds(node).at(-1) === selection.row} onClick={() => update(moveAffordance(model, selection.id, selection.row!, 1))}><Icon name="down" />Move down</button>
               </div>
             </> : <>
-              <Field label="Place label" value={node.label} onCommit={value => requiredLabel(value, next => { next.nodes[selection.id]!.label = value; })} multiline />
-              <label className="field"><span>Node kind</span><select value={node.kind} onChange={event => edit(next => { next.nodes[selection.id]!.kind = event.target.value as BreadboardNode['kind']; })}><option value="place">Place</option><option value="component">Component</option></select></label>
+              <Field key={`node-label:${selection.id}`} label={node.kind === 'component' ? 'Component label' : 'Place label'} placeholder={node.kind === 'component' ? 'New component' : 'New place'} value={unlabeledNodes.has(selection.id) && (node.label === 'New component' || node.label === 'New place') ? '' : node.label} onCommit={value => requiredLabel(value, next => {
+                next.nodes[selection.id]!.label = value;
+                setUnlabeledNodes(previous => { const updated = new Set(previous); updated.delete(selection.id); return updated; });
+              })} multiline />
+              <label className="field"><span>Node kind</span><select value={node.kind} onChange={event => edit(next => { next.nodes[selection.id]!.kind = event.target.value as BreadboardNode['kind']; if (event.target.value === 'place') delete next.nodes[selection.id]!.data; })}><option value="place" disabled={Boolean(Object.keys(node.data ?? {}).length)}>Place</option><option value="component">Component</option></select></label>
               <label className="field"><span>Slice</span><select aria-label="Slice" value={node.slice ?? ''} onChange={event => { update(assignSlice(model, selection.id, event.target.value || null)); editor?.zoomToFit({ animation: { duration: 180 } }); }}>
                 <option value="">Unassigned</option>
                 {node.slice && !Object.hasOwn(model.slices ?? {}, node.slice) && <option value={node.slice}>{node.slice} (missing)</option>}
@@ -426,16 +449,24 @@ export default function App() {
                 </div>
               </div>; })}
               {!Object.keys(node.affordances).length && <p className="help">What can someone do or read here?</p>}
+              {node.kind === 'component' && <DataPanel key={`node-data:${selection.id}`} model={model} nodeId={selection.id} onChange={update} onSelectAssociation={selectAssociation} />}
             </>}
             <p className="help id-note">Labels can change while connections keep their identity.</p>
             <button className="danger-button" onClick={deleteSelection}>Delete {row ? 'affordance' : node.kind}</button>
+          </> : selection?.type === 'association' && model.associations?.[selection.id] ? <>
+            <div className="section-eyebrow">DATA ASSOCIATION</div><h2>Edit association</h2><code className="semantic-id">{selection.id}</code>
+            <AssociationFields key={selection.id} model={model} id={selection.id} onChange={update} />
+            <p className="help">Drag the dashed line’s handle left or right to adjust its route.</p>
+            <button disabled={!model.layout?.associations?.[selection.id]} onClick={() => edit(next => { if (next.layout?.associations) delete next.layout.associations[selection.id]; })}>Reset route</button>
+            <button className="parent-navigation" disabled={associationComponent?.kind !== 'component'} title={associationComponent ? `Back to ${associationComponent.label}` : 'Source component is unavailable'} onClick={() => { if (associationComponentId) selectNode(associationComponentId); }}>← Back to Component</button>
+            <button className="danger-button" onClick={deleteSelection}>Delete association</button>
           </> : connection && selection?.type === 'connection' ? <>
             <div className="section-eyebrow">CONNECTION</div><h2>Edit connection</h2><code className="semantic-id">{selection.id}</code>
             <ReferenceSelect label="From affordance" model={model} source value={connection.from} onChange={ref => {
               const moved = moveConnection(model, selection.id, ref); update(moved.model); selectConnection(moved.id);
             }} />
             <button className="text-button" onClick={() => { const [nodeId, rowId] = connection.from.split('.'); selectNode(nodeId!, rowId); }}>Edit source affordance →</button>
-            <ConnectionFields key={selection.id} connection={connection} model={model} onChange={change => edit(next => change(connectionAt(next, selection.id)))} />
+            <ConnectionFields key={selection.id} connection={connection} model={model} source={connection.from.split('.')[0]!} onChange={change => edit(next => change(connectionAt(next, selection.id)))} />
             <p className="help">Drag the arrow’s round handle left or right to route it around places. The vertical segment stays at that canvas position when places move.</p>
             <button disabled={!model.layout?.connections?.[selection.id]} onClick={() => edit(next => { if (next.layout?.connections) delete next.layout.connections[selection.id]; })}>Reset route</button>
             <p className="help">Choose an endpoint to reconnect this path. Moving a place keeps the same endpoints.</p><button className="danger-button" onClick={deleteSelection}>Delete connection</button>
@@ -444,7 +475,7 @@ export default function App() {
       </aside>
     </main>
     <footer className="status-bar">
-      <div className="status-details"><span className="status-file" title={fileTarget?.path}>{fileTarget?.path ?? filename}{!fileTarget && <span> · Not saved to a file</span>}</span><span>{Object.keys(model.nodes).length} nodes · {Object.keys(model.slices ?? {}).length} slices · {graphConnections.length} connections · {model.scenarios?.length ?? 0} scenarios</span><span className="local-indicator">Local workspace</span></div>
+      <div className="status-details"><span className="status-file" title={fileTarget?.path}>{fileTarget?.path ?? filename}{!fileTarget && <span> · Not saved to a file</span>}</span><span>{Object.keys(model.nodes).length} nodes · {Object.keys(model.slices ?? {}).length} slices · {graphConnections.length} connections · {Object.keys(model.associations ?? {}).length} associations · {model.scenarios?.length ?? 0} scenarios</span><span className="local-indicator">Local workspace</span></div>
       <div className="canvas-shortcuts" aria-label="Keyboard and mouse instructions">
         <span><strong>Pan</strong> <kbd>Space</kbd> + drag or two-finger scroll</span>
         <span><strong>Zoom</strong> pinch or <kbd>⌘ / Ctrl</kbd> + scroll</span>

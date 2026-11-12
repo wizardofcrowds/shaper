@@ -1,3 +1,4 @@
+import { associationGeometry, deleteAssociation } from './data.ts';
 import { createContext, useContext } from 'react';
 import {
   createShapeId, HTMLContainer, Polyline2d, Rectangle2d, Group2d, ShapeUtil,
@@ -8,12 +9,13 @@ import { validateBreadboard } from '../index.ts';
 import type { Breadboard } from '../model.ts';
 import { nodeColorStyle } from './colors.ts';
 import { coverSliceMembers, deleteSlice, moveSlice, resizeSlice, settleNodeDrops, sliceMembers } from './slices.ts';
-import { affordanceIds, deleteConnection, deleteNode, edgeGeometry, HEADER_HEIGHT, NODE_WIDTH, nodeHeight, ROW_HEIGHT, withLayout } from './model.ts';
+import { affordanceIds, deleteConnection, deleteNode, edgeGeometry, ATTRIBUTE_HEIGHT, HEADER_HEIGHT, NODE_WIDTH, nodeHeight, ROW_HEIGHT, withLayout } from './model.ts';
 
 interface Row { id: string; label: string; kind: string }
-interface NodeProps { nodeId: string; label: string; kind: string; color: string; rows: Row[]; w: number; h: number }
+interface DataRow extends Row { attributes: string[] }
+interface NodeProps { nodeId: string; label: string; kind: string; color: string; rows: Row[]; data: DataRow[]; w: number; h: number }
 interface SliceProps { sliceId: string; label: string; count: number; w: number; h: number }
-interface EdgeProps { connectionId: string; label: string; kind: string; sx: number; sy: number; mx: number; ex: number; ey: number }
+interface EdgeProps { loginRequired: boolean; association: boolean; fromCardinality: string; toCardinality: string; connectionId: string; label: string; kind: string; sx: number; sy: number; mx: number; ex: number; ey: number }
 
 declare module 'tldraw' {
   interface TLGlobalShapePropsMap {
@@ -27,20 +29,22 @@ type EdgeShape = TLShape<'breadboard-edge'>;
 type SliceShape = TLShape<'breadboard-slice'>;
 export const nodeShapeId = (id: string) => createShapeId(`shaper-node-${id}`);
 export const sliceShapeId = (id: string) => createShapeId(`shaper-slice-${id}`);
+export const associationShapeId = (id: string) => createShapeId(`shaper-association-${id}`);
 export const edgeShapeId = (id: string) => createShapeId(`shaper-edge-${id}`);
 
 interface Interaction {
   pending: string | null;
   selectedRow: string | null;
   select: (nodeId: string, rowId?: string) => void;
+  selectData: (nodeId: string, id: string) => void;
   startConnection: (ref: string) => void;
   target: (ref: string) => void;
 }
-export const CanvasInteraction = createContext<Interaction>({ pending: null, selectedRow: null, select() {}, startConnection() {}, target() {} });
+export const CanvasInteraction = createContext<Interaction>({ pending: null, selectedRow: null, select() {}, selectData() {}, startConnection() {}, target() {} });
 
 function NodeContent({ shape }: { shape: NodeShape }) {
   const interaction = useContext(CanvasInteraction);
-  const { nodeId, label, kind, rows, w, h } = shape.props;
+  const { nodeId, label, kind, rows, data, w, h } = shape.props;
   return <HTMLContainer style={{ width: w, height: h, pointerEvents: 'all' }}>
     <div className={`breadboard-node ${interaction.pending ? 'is-target' : ''}`} data-node-id={nodeId} style={nodeColorStyle(shape.props.color)}>
       <div className="node-heading" style={{ height: HEADER_HEIGHT }} onPointerDown={event => {
@@ -62,7 +66,16 @@ function NodeContent({ shape }: { shape: NodeShape }) {
           onPointerDown={event => event.stopPropagation()}
           onClick={event => { event.stopPropagation(); interaction.startConnection(`${nodeId}.${row.id}`); }}>+</button>
       </div>)}
-      {!rows.length && <div className="empty-node" style={{ height: ROW_HEIGHT }}>Add an affordance to shape this place.</div>}
+      {!rows.length && <div className="empty-node" style={{ height: ROW_HEIGHT }}>{kind === 'component' ? 'No affordances' : 'Add an affordance to shape this place.'}</div>}
+      {data.map(row => <div key={row.id} className="data-block" onPointerDown={event => {
+        event.stopPropagation();
+        if (!interaction.pending) interaction.selectData(nodeId, row.id);
+      }}>
+        <div className="node-row data-row" style={{ height: ROW_HEIGHT }}><span className="data-mark">DATA</span><span className="row-label" title={row.label}>{row.label}</span></div>
+        {row.attributes.length > 0 && <ul className="data-attributes" aria-label={`${row.label} attributes`}>
+          {row.attributes.map((attribute, index) => <li key={index} style={{ height: ATTRIBUTE_HEIGHT }} title={attribute}>{attribute}</li>)}
+        </ul>}
+      </div>)}
     </div>
   </HTMLContainer>;
 }
@@ -72,8 +85,9 @@ export class BreadboardNodeUtil extends ShapeUtil<NodeShape> {
   static override props = {
     nodeId: T.string, label: T.string, kind: T.string, color: T.string, w: T.number, h: T.number,
     rows: T.arrayOf(T.object({ id: T.string, label: T.string, kind: T.string })),
+    data: T.arrayOf(T.object({ id: T.string, label: T.string, kind: T.string, attributes: T.arrayOf(T.string) })),
   };
-  getDefaultProps(): NodeProps { return { nodeId: '', label: '', kind: 'place', color: '', rows: [], w: NODE_WIDTH, h: 144 }; }
+  getDefaultProps(): NodeProps { return { nodeId: '', label: '', kind: 'place', color: '', rows: [], data: [], w: NODE_WIDTH, h: 144 }; }
   getGeometry(shape: NodeShape) { return new Rectangle2d({ width: shape.props.w, height: shape.props.h, isFilled: true }); }
   override onTranslateEnd(_initial: NodeShape, current: NodeShape) {
     const before = readModel(this.editor);
@@ -104,8 +118,8 @@ export class BreadboardEdgeUtil extends ShapeUtil<EdgeShape> {
   }
 
   static override type = 'breadboard-edge' as const;
-  static override props = { connectionId: T.string, label: T.string, kind: T.string, sx: T.number, sy: T.number, mx: T.number, ex: T.number, ey: T.number };
-  getDefaultProps(): EdgeProps { return { connectionId: '', label: '', kind: 'navigate', sx: 0, sy: 0, mx: 50, ex: 100, ey: 50 }; }
+  static override props = { loginRequired: T.boolean, association: T.boolean, fromCardinality: T.string, toCardinality: T.string, connectionId: T.string, label: T.string, kind: T.string, sx: T.number, sy: T.number, mx: T.number, ex: T.number, ey: T.number };
+  getDefaultProps(): EdgeProps { return { loginRequired: false, association: false, fromCardinality: '', toCardinality: '', connectionId: '', label: '', kind: 'navigate', sx: 0, sy: 0, mx: 50, ex: 100, ey: 50 }; }
   getGeometry(shape: EdgeShape) {
     const p = shape.props;
     return new Polyline2d({ points: [new Vec(p.sx, p.sy), new Vec(p.mx, p.sy), new Vec(p.mx, p.ey), new Vec(p.ex, p.ey)] });
@@ -115,10 +129,21 @@ export class BreadboardEdgeUtil extends ShapeUtil<EdgeShape> {
   override canBind() { return false; }
   component(shape: EdgeShape) {
     const p = shape.props, direction = p.ex >= p.mx ? 1 : -1;
+    const dataAccess = !p.association && (p.kind === 'read' || p.kind === 'write');
+    const stroke = dataAccess ? (p.kind === 'read' ? '#000000' : '#d97706') : '#647a6c';
+    const strokeWidth = dataAccess ? 1 : 1.7;
     return <SVGContainer style={{ pointerEvents: 'none', overflow: 'visible' }}>
-      <path d={`M${p.sx},${p.sy} H${p.mx} V${p.ey} H${p.ex}`} fill="none" stroke="#647a6c" strokeWidth={1.7} strokeLinejoin="round" />
-      <path d={`M${p.ex - direction * 7},${p.ey - 4} L${p.ex},${p.ey} L${p.ex - direction * 7},${p.ey + 4}`} fill="none" stroke="#647a6c" strokeWidth={1.7} />
-      <text x={(p.sx + p.mx) / 2} y={p.sy - 9} textAnchor="middle" fill="#607467" fontSize="10" fontFamily="system-ui, sans-serif">{(p.label || (p.kind === 'navigate' ? '' : p.kind)).slice(0, 32)}</text>
+      <path d={`M${p.sx},${p.sy} H${p.mx} V${p.ey} H${p.ex}`} fill="none" stroke={stroke} strokeWidth={strokeWidth} strokeDasharray={p.association ? '6 5' : dataAccess ? '1 4' : undefined} strokeLinecap={dataAccess ? 'round' : undefined} strokeLinejoin="round" />
+      {!p.association && <path d={`M${p.ex - direction * 7},${p.ey - 4} L${p.ex},${p.ey} L${p.ex - direction * 7},${p.ey + 4}`} fill="none" stroke={stroke} strokeWidth={strokeWidth} strokeLinecap="round" />}
+      {p.loginRequired && <g role="img" aria-label="Login required">
+        <rect x={(p.sx + p.mx) / 2 - 43} y={p.sy - 25} width={86} height={18} rx={8} fill="#f5f3e9" stroke="#c9c4a6" strokeWidth={0.8} />
+        <text x={(p.sx + p.mx) / 2} y={p.sy - 13} textAnchor="middle" fontSize="10" fill="#625b32">Login required</text>
+      </g>}
+      {p.association && <>
+        <text x={p.sx + 8} y={p.sy - 9} fill="#607467" fontSize="11">{p.fromCardinality || '?'}</text>
+        <text x={p.ex + (direction > 0 ? -12 : 12)} y={p.ey - 9} textAnchor={direction > 0 ? 'end' : 'start'} fill="#607467" fontSize="11">{p.toCardinality || '?'}</text>
+      </>}
+      <text x={p.association ? p.mx + 9 : (p.sx + p.mx) / 2} y={p.association ? (p.sy + p.ey) / 2 - 9 : p.sy - (p.loginRequired ? 34 : 9)} textAnchor="middle" fill={dataAccess ? stroke : '#607467'} fontSize="10" fontFamily="system-ui, sans-serif">{(p.label || (p.kind === 'navigate' || p.association ? '' : p.kind === 'detour' ? 'detour · returns here' : p.kind)).slice(0, p.association ? 60 : 32)}</text>
     </SVGContainer>;
   }
   getIndicatorPath(shape: EdgeShape) { const p = shape.props; return new Path2D(`M${p.sx},${p.sy} H${p.mx} V${p.ey} H${p.ex}`); }
@@ -182,7 +207,7 @@ export function createController(editor: Editor, initial: Breadboard) {
           const shapeId = nodeShapeId(id);
           desired.add(shapeId);
           const position = model.layout!.nodes![id]!;
-          const props: NodeProps = { nodeId: id, label: node.label, kind: node.kind, color: node.color ?? '', w: NODE_WIDTH, h: nodeHeight(node), rows: affordanceIds(node).map(rowId => ({ id: rowId, label: node.affordances[rowId]!.label, kind: node.affordances[rowId]!.kind })) };
+          const props: NodeProps = { nodeId: id, label: node.label, kind: node.kind, color: node.color ?? '', w: NODE_WIDTH, h: nodeHeight(node), rows: affordanceIds(node).map(rowId => ({ id: rowId, label: node.affordances[rowId]!.label, kind: node.affordances[rowId]!.kind })), data: Object.keys(node.data ?? {}).sort().map(key => ({ id: key, label: node.data![key]!.label, kind: 'data', attributes: node.data![key]!.attributes ?? [] })) };
           const existing = editor.getShape<NodeShape>(shapeId);
           if (!existing) editor.createShape<NodeShape>({ id: shapeId, type: 'breadboard-node', ...position, props });
           else if (existing.x !== position.x || existing.y !== position.y || JSON.stringify(existing.props) !== JSON.stringify(props)) editor.updateShape<NodeShape>({ id: shapeId, type: 'breadboard-node', ...position, props });
@@ -191,7 +216,16 @@ export function createController(editor: Editor, initial: Breadboard) {
           const { id, connection, x, y, sx, sy, mx, ex, ey } = geometry;
           const shapeId = edgeShapeId(id);
           desired.add(shapeId);
-          const props: EdgeProps = { connectionId: id, label: connection.label ?? '', kind: connection.kind, sx, sy, mx, ex, ey };
+          const props: EdgeProps = { loginRequired: Boolean(connection.login), association: false, fromCardinality: '', toCardinality: '', connectionId: id, label: connection.label ?? '', kind: connection.kind, sx, sy, mx, ex, ey };
+          const existing = editor.getShape<EdgeShape>(shapeId);
+          if (!existing) editor.createShape<EdgeShape>({ id: shapeId, type: 'breadboard-edge', x, y, props });
+          else if (existing.x !== x || existing.y !== y || JSON.stringify(existing.props) !== JSON.stringify(props)) editor.updateShape<EdgeShape>({ id: shapeId, type: 'breadboard-edge', x, y, props });
+        }
+        for (const geometry of associationGeometry(model)) {
+          const { id, association, x, y, sx, sy, mx, ex, ey } = geometry;
+          const shapeId = associationShapeId(id);
+          desired.add(shapeId);
+          const props: EdgeProps = { loginRequired: false, association: true, connectionId: id, label: association.label ?? '', kind: 'association', fromCardinality: association.from_cardinality ?? '', toCardinality: association.to_cardinality ?? '', sx, sy, mx, ex, ey };
           const existing = editor.getShape<EdgeShape>(shapeId);
           if (!existing) editor.createShape<EdgeShape>({ id: shapeId, type: 'breadboard-edge', x, y, props });
           else if (existing.x !== x || existing.y !== y || JSON.stringify(existing.props) !== JSON.stringify(props)) editor.updateShape<EdgeShape>({ id: shapeId, type: 'breadboard-edge', x, y, props });
@@ -233,8 +267,9 @@ export function createController(editor: Editor, initial: Breadboard) {
     } else if (next.type === 'breadboard-edge' && previous.type === 'breadboard-edge') {
       if (previous.props.mx === next.props.mx) return;
       const model = structuredClone(readModel(editor));
-      model.layout ??= {}; model.layout.connections ??= {};
-      model.layout.connections[next.props.connectionId] = { x: next.x + next.props.mx };
+      model.layout ??= {};
+      const routes = next.props.association ? (model.layout.associations ??= {}) : (model.layout.connections ??= {});
+      routes[next.props.connectionId] = { x: next.x + next.props.mx };
       writeModel(model);
     } else if (next.type === 'breadboard-slice' && previous.type === 'breadboard-slice') {
       const resized = previous.props.w !== next.props.w || previous.props.h !== next.props.h;
@@ -253,7 +288,7 @@ export function createController(editor: Editor, initial: Breadboard) {
     if (projecting) return;
     const model = readModel(editor);
     if (shape.type === 'breadboard-node' && Object.hasOwn(model.nodes, shape.props.nodeId)) writeModel(deleteNode(model, shape.props.nodeId));
-    if (shape.type === 'breadboard-edge') writeModel(deleteConnection(model, shape.props.connectionId));
+    if (shape.type === 'breadboard-edge') writeModel(shape.props.association ? deleteAssociation(model, shape.props.connectionId) : deleteConnection(model, shape.props.connectionId));
     if (shape.type === 'breadboard-slice' && Object.hasOwn(model.slices ?? {}, shape.props.sliceId)) writeModel(deleteSlice(model, shape.props.sliceId));
   });
   const unlisten = editor.store.listen(() => {

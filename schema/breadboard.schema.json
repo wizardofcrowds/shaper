@@ -26,6 +26,11 @@
         }
       }
     },
+    "associations": {
+      "type": "object",
+      "propertyNames": {"$ref": "#/$defs/id"},
+      "additionalProperties": {"$ref": "#/$defs/association"}
+    },
     "scenarios": {
       "type": "array",
       "items": {"$ref": "#/$defs/scenario"}
@@ -34,6 +39,13 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "associations": {
+          "type": "object", "propertyNames": {"$ref": "#/$defs/id"},
+          "additionalProperties": {
+            "type": "object", "required": ["x"], "additionalProperties": false,
+            "properties": {"x": {"type": "number"}}
+          }
+        },
         "connections": {
           "type": "object",
           "additionalProperties": {
@@ -97,9 +109,32 @@
         "metadata": {"type": "object"}
       }
     },
+    "dataElement": {
+      "type": "object", "required": ["label"], "additionalProperties": false,
+      "properties": {
+        "label": {"type": "string", "minLength": 1},
+        "attributes": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1, "pattern": "\\S"}},
+        "metadata": {"type": "object"}
+      }
+    },
+    "association": {
+      "type": "object", "required": ["from", "to"], "additionalProperties": false,
+      "properties": {
+        "from": {"$ref": "#/$defs/affordanceRef"},
+        "to": {"$ref": "#/$defs/affordanceRef"},
+        "label": {"type": "string"},
+        "from_cardinality": {"enum": ["1", "0..1", "0..*", "1..*"]},
+        "to_cardinality": {"enum": ["1", "0..1", "0..*", "1..*"]},
+        "metadata": {"type": "object"}
+      }
+    },
     "node": {
       "type": "object",
       "required": ["kind", "label", "affordances"],
+      "allOf": [{
+        "if": {"properties": {"kind": {"const": "place"}}, "required": ["kind"]},
+        "then": {"properties": {"data": false}}
+      }],
       "additionalProperties": false,
       "properties": {
         "kind": {"enum": ["place", "component"]},
@@ -110,6 +145,10 @@
           "type": "object",
           "propertyNames": {"$ref": "#/$defs/id"},
           "additionalProperties": {"$ref": "#/$defs/affordance"}
+        },
+        "data": {
+          "type": "object", "propertyNames": {"$ref": "#/$defs/id"},
+          "additionalProperties": {"$ref": "#/$defs/dataElement"}
         },
         "affordance_order": {
           "type": "array",
@@ -123,9 +162,17 @@
       "type": "object",
       "required": ["to", "kind"],
       "additionalProperties": false,
+      "allOf": [
+        {"if": {"properties": {"login": {}}, "required": ["login"]}, "then": {"properties": {"kind": {"const": "navigate"}, "to": {"$ref": "#/$defs/id"}}}},
+        {"if": {"properties": {"kind": {"const": "detour"}}, "required": ["kind"]}, "then": {"properties": {"to": {"$ref": "#/$defs/id"}}}}
+      ],
       "properties": {
         "to": {"$ref": "#/$defs/targetRef"},
-        "kind": {"enum": ["navigate", "invoke", "emit", "read", "write"]},
+        "kind": {"enum": ["navigate", "detour", "invoke", "emit", "read", "write"]},
+        "login": {
+          "type": "object", "additionalProperties": false,
+          "properties": {"via": {"$ref": "#/$defs/id"}}
+        },
         "label": {"type": "string"},
         "metadata": {"type": "object"}
       }

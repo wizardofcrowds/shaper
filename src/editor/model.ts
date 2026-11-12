@@ -1,8 +1,10 @@
-import type { Breadboard, BreadboardNode, Connection } from '../model.ts';
+import { associationFindings } from './data.ts';
+import type { Breadboard, BreadboardNode, DataElement, Connection } from '../model.ts';
 
 export const NODE_WIDTH = 300;
 export const HEADER_HEIGHT = 84;
 export const ROW_HEIGHT = 48;
+export const ATTRIBUTE_HEIGHT = 28;
 export interface Position { x: number; y: number }
 export interface Finding { severity: 'error' | 'warning' | 'info'; message: string; ref: string }
 
@@ -13,7 +15,19 @@ export function uniqueId(existing: object, base: string): string {
 }
 
 export function nodeHeight(node: BreadboardNode): number {
-  return HEADER_HEIGHT + Math.max(1, Object.keys(node.affordances).length) * ROW_HEIGHT + 12;
+  return HEADER_HEIGHT + Math.max(1, Object.keys(node.affordances).length) * ROW_HEIGHT + Object.values(node.data ?? {}).reduce((height, element) => height + dataHeight(element), 0) + 12;
+}
+
+export function dataHeight(element: DataElement): number {
+  return ROW_HEIGHT + (element.attributes?.length ?? 0) * ATTRIBUTE_HEIGHT;
+}
+
+/** Association endpoints stay on data headers, even when preceding elements grow. */
+export function dataRowY(node: BreadboardNode, id: string): number {
+  const keys = Object.keys(node.data ?? {}).sort();
+  return HEADER_HEIGHT + Math.max(1, Object.keys(node.affordances).length) * ROW_HEIGHT
+    + keys.slice(0, keys.indexOf(id)).reduce((height, key) => height + dataHeight(node.data![key]!), 0)
+    + ROW_HEIGHT / 2;
 }
 
 /** Missing display order falls back to mapping order. */
@@ -199,12 +213,19 @@ export function edgeGeometry(model: Breadboard): EdgeGeometry[] {
 }
 
 export function checkBreadboard(model: Breadboard): Finding[] {
-  const findings: Finding[] = [];
+  const findings: Finding[] = associationFindings(model);
   const check = (ref: string, owner: string) => {
     if (!resolves(model, ref)) findings.push({ severity: 'error', ref: owner, message: `${owner} refers to missing “${ref}”.` });
   };
   for (const connection of connections(model)) {
     check(connection.to, connection.id);
+    if (connection.kind === 'detour' || connection.login) {
+      if (model.nodes[connection.to]?.kind !== 'place') findings.push({ severity: 'error', ref: connection.id, message: `${connection.id}: login-gated navigation and detours must lead to a place.` });
+    }
+    if (connection.login) {
+      if (!connection.login.via) findings.push({ severity: 'warning', ref: connection.id, message: `${connection.id}: login is required, but the login place is not specified yet.` });
+      else if (model.nodes[connection.login.via]?.kind !== 'place') findings.push({ severity: 'error', ref: connection.id, message: `${connection.id}: login place “${connection.login.via}” is missing or is not a place.` });
+    }
   }
   for (const [id, node] of Object.entries(model.nodes)) {
     if (node.slice && !Object.hasOwn(model.slices ?? {}, node.slice)) findings.push({ severity: 'error', ref: id, message: `${id} belongs to missing slice “${node.slice}”.` });
@@ -242,8 +263,8 @@ export function checkBreadboard(model: Breadboard): Finding[] {
       const edges = Object.values(model.nodes[nodeId]!.affordances[rowId]!.connections ?? {});
       const kind = model.nodes[nodeId]!.affordances[rowId]!.kind;
       if (!edges.length && (kind === 'input' || kind === 'copy')) continue;
-      if (edges.length !== 1 || edges[0]!.kind !== 'navigate' || edges[0]!.to.includes('.')) {
-        findings.push({ severity: 'warning', ref: scenario.id, message: `${scenario.id}: outcome of “${step}” needs an explicit choice or component execution semantics.` });
+      if (edges.length !== 1 || edges[0]!.kind !== 'navigate' || edges[0]!.login !== undefined || edges[0]!.to.includes('.')) {
+        findings.push({ severity: 'warning', ref: scenario.id, message: `${scenario.id}: outcome of “${step}” needs an explicit choice, login outcome, or component execution semantics.` });
         evaluable = false;
         continue;
       }

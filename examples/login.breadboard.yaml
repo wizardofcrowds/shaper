@@ -1,0 +1,47 @@
+version: '0.1'
+title: Required login and optional detours
+nodes:
+  articles:
+    kind: place
+    label: Article List
+    affordances:
+      show:
+        kind: action
+        label: Show article
+        connections:
+          detail:
+            kind: navigate
+            to: article_detail
+            login:
+              via: member_login
+  article_detail:
+    kind: place
+    label: Article Detail
+    affordances: {}
+  payment:
+    kind: place
+    label: Payment Method & Contact
+    affordances:
+      member_login:
+        kind: action
+        label: Member Login
+        connections:
+          login:
+            kind: detour
+            to: member_login
+      email:
+        kind: input
+        label: Email
+  member_login:
+    kind: place
+    label: Member Login
+    affordances:
+      submit:
+        kind: action
+        label: Sign in and resume task
+layout:
+  nodes:
+    articles: {x: 0, y: 0}
+    article_detail: {x: 620, y: 0}
+    payment: {x: 0, y: 350}
+    member_login: {x: 620, y: 350}
