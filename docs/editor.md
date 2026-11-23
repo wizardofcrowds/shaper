@@ -207,9 +207,9 @@ the data element's header as its attribute list grows.
 
 
 Read connections use thin black dotted lines; write connections use thin orange
-dotted lines. Both retain matching arrowheads to show direction. Navigation,
-invocation, and event connections use solid lines; data associations use longer
-dashes without arrowheads. This styling is derived from the connection kind and
+dotted lines. Both retain matching arrowheads to show direction. Navigation and
+detour connections use solid lines. Invocation and event connections use broken
+lines with arrowheads; data associations use dashes without arrowheads. This styling is derived from the connection kind and
 requires no changes to existing YAML files.
 
 
@@ -232,7 +232,9 @@ the intended product flow; Shaper does not perform authentication or redirects.
 ### Filtering connection destinations
 
 Type in the search field above **To place or affordance** to narrow the destination
-list by name or semantic ID. Search ignores case, and multiple words narrow the
+list by name or semantic ID. Filtered results expand as you type and are grouped
+into **Places and components** and **Affordances**, including entries such as
+**Cart / Create Cart**. Search ignores case, and multiple words narrow the
 results further. The current destination remains visible even when it does not
 match; typing never changes a connection. Choose a matching option to reconnect.
 Clear the search with **×** or Escape to restore all choices. The same filter is

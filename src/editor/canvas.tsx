@@ -133,7 +133,7 @@ export class BreadboardEdgeUtil extends ShapeUtil<EdgeShape> {
     const stroke = dataAccess ? (p.kind === 'read' ? '#000000' : '#d97706') : '#647a6c';
     const strokeWidth = dataAccess ? 1 : 1.7;
     return <SVGContainer style={{ pointerEvents: 'none', overflow: 'visible' }}>
-      <path d={`M${p.sx},${p.sy} H${p.mx} V${p.ey} H${p.ex}`} fill="none" stroke={stroke} strokeWidth={strokeWidth} strokeDasharray={p.association ? '6 5' : dataAccess ? '1 4' : undefined} strokeLinecap={dataAccess ? 'round' : undefined} strokeLinejoin="round" />
+      <path d={`M${p.sx},${p.sy} H${p.mx} V${p.ey} H${p.ex}`} fill="none" stroke={stroke} strokeWidth={strokeWidth} strokeDasharray={p.association ? '6 5' : dataAccess ? '1 4' : p.kind === 'navigate' || p.kind === 'detour' ? undefined : '6 4'} strokeLinecap={dataAccess ? 'round' : undefined} strokeLinejoin="round" />
       {!p.association && <path d={`M${p.ex - direction * 7},${p.ey - 4} L${p.ex},${p.ey} L${p.ex - direction * 7},${p.ey + 4}`} fill="none" stroke={stroke} strokeWidth={strokeWidth} strokeLinecap="round" />}
       {p.loginRequired && <g role="img" aria-label="Login required">
         <rect x={(p.sx + p.mx) / 2 - 43} y={p.sy - 25} width={86} height={18} rx={8} fill="#f5f3e9" stroke="#c9c4a6" strokeWidth={0.8} />
