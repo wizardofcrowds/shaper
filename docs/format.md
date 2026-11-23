@@ -7,8 +7,8 @@ reference and scenario checks; JSON Schema alone cannot validate graph topology.
 ## Semantic elements
 
 - `nodes`: a mapping of stable IDs to places or components.
-- `slices`: an optional mapping of IDs to named groups of whole places/components.
-  A node’s optional `slice` field assigns it to one group; omission means unassigned.
+- `areas`: an optional mapping of stable IDs to named areas. A node’s optional
+  `area` field assigns it to one area; omission means unassigned.
 - `affordances`: named things available at a node. Kinds are `action`, `input`,
   `copy`, `capability`, and `event`.
 - Each affordance may have a `connections` mapping of local IDs to directed
@@ -74,34 +74,6 @@ unresolved references for checks. Undo can restore the deleted owner and paths.
 Changing a connection's source in the inspector moves its record to the new owner.
 Its local ID is retained unless already used there; then a numeric suffix avoids
 overwriting another path. All connection fields, including metadata, are retained.
-
-## Slices
-
-A slice is a named canvas region grouping whole places and components. A node
-has at most one `slice` ID. Its affordances and connections remain on the node;
-connections still target nodes or affordances, never slices. Unknown slice IDs
-are graph findings rather than a reason to reject a work-in-progress file.
-
-```yaml
-slices:
-  prepare:
-    label: A host can prepare for an exploration
-# On a place or component in nodes:
-#   slice: prepare
-layout:
-  slices:
-    prepare: {x: 0, y: 0, w: 640, h: 420}
-```
-
-Each slice requires a nonempty `label` and may have `metadata`. `layout.slices`
-stores region bounds keyed by slice ID; widths are at least 360 and heights at
-least 220. Missing bounds are materialized by the editor around assigned members
-or at a deterministic initial position. Existing documents without slices remain
-valid, and the experimental version stays `0.1`.
-
-Slice assignment does not change connection identity or express implementation
-order. Deleting a slice unassigns its members and retains nodes, positions,
-connections, and scenarios. See [slice behavior](slices.md) for canvas interactions.
 
 ## Presentation and extensions
 
@@ -296,3 +268,49 @@ These are design annotations, not authentication execution or persisted runtime
 context. The scenario checker reports gated navigation and detours as needing
 explicit outcome semantics rather than assuming authentication succeeded. Existing
 connections without these additions retain their previous behavior.
+
+## Named areas
+
+Areas use explicit membership:
+
+```yaml
+areas:
+  create_order:
+    label: Create an Order
+nodes:
+  checkout:
+    kind: place
+    label: Checkout
+    area: create_order
+    affordances: {}
+```
+
+`areas` is an optional mapping of stable IDs to `{ label, metadata? }` definitions.
+A place or component has at most one optional `area` ID. Omission means Unassigned.
+Area labels are centrally managed; renaming a label does not change IDs or node
+references. The editor prevents blank and duplicate area names. Checks reports
+references to missing areas.
+
+Assignment does not move nodes or change connections, associations, data,
+or scenarios. Dragging nodes never changes their named area. Deleting an area
+removes its residents' `area` references and preserves the residents themselves.
+Undo restores the definition and assignments.
+
+Filtering is a view setting, not a document transformation. Saving a filtered
+view writes the entire model, including hidden residents, wires, data and layout.
+Positions are shared across views; pan and zoom are remembered separately per
+view for the current session. The area filter and camera positions are not stored
+in YAML. Existing files remain valid and open in All areas.
+
+
+### Importing older spatial groups
+
+The retired `slices`, node `slice`, and `layout.slices` fields are accepted only
+when importing old YAML. Definitions and memberships become named areas, with
+stable IDs remapped if they conflict with existing area IDs. Existing area
+assignments take precedence; old conflicting memberships are preserved in node
+metadata. Group metadata is retained, and old region bounds are preserved under
+a collision-safe `metadata.legacy_regions` key. Places, components, positions,
+data, scenarios, connections, and routes are unchanged. A subsequent save writes
+only the current area model. The writer and current JSON Schema reject retired
+fields; they cannot be introduced into new documents.

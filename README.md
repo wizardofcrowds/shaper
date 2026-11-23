@@ -7,7 +7,7 @@ and checking how those artifacts fit together.
 - Shaping describes the proposed approach, scope, tradeoffs, and open questions.
 - Breadboards describe places or components, their affordances, and connections.
 
-Breadboarding is the first implementation slice. Its `.breadboard.yaml` format
+Breadboarding is the first implemented tool. Its `.breadboard.yaml` format
 remains specific to that artifact; document formats and cross-artifact links will
 be designed when document editing is introduced.
 
@@ -39,9 +39,9 @@ New, or open a `.yaml` or `.yml` breadboard file. Select headings and affordance
 them, drag headings to move places, and use an affordance's + port to connect it
 to a heading or another affordance. Existing paths can be reconnected in the
 Connections panel. You can also edit outgoing paths in the affordance inspector.
-Use Slice to add a named region, then drag places/components into it to group
-them. The inspector also supports assigning/unassigning nodes and inspecting
-connections across a slice boundary. Slices and membership are saved in YAML.
+Use Manage areas beside the canvas creation buttons to define area names.
+Assign an Area in each place/component inspector, then filter the canvas by area.
+Membership is explicit and saved in YAML; dragging does not change it.
 Connections are nested under source affordances in YAML; the previous top-level
 format is no longer accepted.
 
@@ -69,12 +69,11 @@ Run `pnpm typecheck`, `pnpm test`, and `pnpm build` for verification.
 - [Format](docs/format.md) and [JSON Schema](schema/breadboard.schema.json)
 - [YAML API and development](docs/yaml-api.md)
 - [Editor design and first milestone](docs/editor.md)
-- [Named outcome-oriented slices](docs/slices.md)
+- [Named areas and focused views](docs/editor.md#named-areas-and-focused-views)
 - [Hand-drawn import and review](docs/image-import.md)
 - [Camera capture from Codex (planned)](docs/camera-capture.md)
 - [Two-path example](examples/two-paths.breadboard.yaml)
 - [Component interaction example](examples/publishing.breadboard.yaml)
-- [Sliced journey example](examples/slices.breadboard.yaml)
 
 ## Two ways into the same model
 

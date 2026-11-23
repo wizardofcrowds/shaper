@@ -1,3 +1,5 @@
+import { AreaManager } from './AreaManager.tsx';
+import { areaNodeIds, areaCrossings, assignArea, UNASSIGNED_AREA } from './areas.ts';
 import { ReferenceSelect } from './ReferenceSelect.tsx';
 import { DataPanel, AssociationFields } from './DataPanel.tsx';
 import { deleteAssociation } from './data.ts';
@@ -9,20 +11,18 @@ import { BreadboardError, parseBreadboard, writeBreadboard } from '../index.ts';
 import type { Affordance, Breadboard, BreadboardNode, Connection } from '../model.ts';
 import example from '../../examples/two-paths.breadboard.yaml?raw';
 import componentExample from '../../examples/publishing.breadboard.yaml?raw';
-import sliceExample from '../../examples/slices.breadboard.yaml?raw';
 import orderingExample from '../../examples/ordering.breadboard.yaml?raw';
 import loginExample from '../../examples/login.breadboard.yaml?raw';
-import { CanvasInteraction, createController, associationShapeId, edgeShapeId, nodeShapeId, sliceShapeId, readModel, shapeUtils } from './canvas.tsx';
+import { CanvasInteraction, createController, associationShapeId, edgeShapeId, nodeShapeId, readModel, shapeUtils } from './canvas.tsx';
 import type { CanvasController } from './canvas.tsx';
 import { FileDialog } from './FileDialog.tsx';
 import { inspectFile, readLocalFile, saveLocalFile } from './files.ts';
 import type { FileTarget } from './files.ts';
-import { addSlice, assignSlice, boundaryConnections, deleteSlice, resizeSlice, settleNodeDrops, sliceMembers } from './slices.ts';
 import { NODE_COLORS } from '../colors.ts';
 import { nodeColorStyle } from './colors.ts';
 import { addAffordance, addNode, affordanceIds, checkBreadboard, connect, connectionAt, connections, deleteAffordance, deleteConnection, deleteNode, moveAffordance, moveConnection, withLayout } from './model.ts';
 
-type Selection = { type: 'node'; id: string; row?: string } | { type: 'connection' | 'association'; id: string } | { type: 'slice'; id: string } | null;
+type Selection = { type: 'node'; id: string; row?: string } | { type: 'connection' | 'association'; id: string } | null;
 type Notice = { text: string; error?: boolean } | null;
 const initial = withLayout(parseBreadboard(example));
 const components = { ContextMenu: null };
@@ -96,6 +96,11 @@ export default function App() {
   const [selection, setSelection] = useState<Selection>(null);
   const [unlabeledNodes, setUnlabeledNodes] = useState<Set<string>>(() => new Set());
   const [unlabeledAffordances, setUnlabeledAffordances] = useState<Set<string>>(() => new Set());
+  const [activeArea, setActiveArea] = useState('');
+  const [areaManagerOpen, setAreaManagerOpen] = useState(false);
+  const areaCameras = useRef(new Map<string, { x: number; y: number; z: number }>());
+  const previousArea = useRef<string | null>(null);
+  const areaFocus = useRef<Selection>(null);
   const [pending, setPending] = useState<string | null>(null);
   const [leftCollapsed, setLeftCollapsed] = useState(true);
   const [rightCollapsed, setRightCollapsed] = useState(false);
@@ -115,11 +120,35 @@ export default function App() {
     const selected = editor?.getOnlySelectedShape();
     if (selected?.type === 'breadboard-edge') return `${selected.props.association ? 'association' : 'connection'}:${selected.props.connectionId}`;
     if (selected?.type === 'breadboard-node') return `node:${selected.props.nodeId}`;
-    if (selected?.type === 'breadboard-slice') return `slice:${selected.props.sliceId}`;
     return null;
   }, [editor]);
   const canUndo = useValue('can undo', () => editor?.getCanUndo() ?? false, [editor]);
   const canRedo = useValue('can redo', () => editor?.getCanRedo() ?? false, [editor]);
+  const areaFilter = activeArea && activeArea !== UNASSIGNED_AREA && !Object.hasOwn(model.areas ?? {}, activeArea) ? '' : activeArea;
+  const visibleNodes = useMemo(() => areaNodeIds(model, areaFilter), [model, areaFilter]);
+  const crossings = useMemo(() => areaCrossings(model, areaFilter), [model, areaFilter]);
+  useEffect(() => {
+    if (!editor || !controller.current) return;
+    if (previousArea.current !== null) areaCameras.current.set(previousArea.current, editor.getCamera());
+    controller.current.setArea(areaFilter);
+    editor.selectNone(); setSelection(null); setPending(null);
+    const camera = areaCameras.current.get(areaFilter);
+    if (camera) editor.setCamera(camera, { animation: { duration: 0 } });
+    else editor.zoomToFit({ animation: { duration: 0 } });
+    previousArea.current = areaFilter;
+    const focus = areaFocus.current;
+    areaFocus.current = null;
+    if (focus) {
+      editor.select(focus.type === 'node' ? nodeShapeId(focus.id) : focus.type === 'association' ? associationShapeId(focus.id) : edgeShapeId(focus.id));
+      setSelection(focus); setTab('inspect'); setRightCollapsed(false);
+    }
+  }, [editor, areaFilter]);
+
+  function resetAreaView() {
+    setActiveArea(''); areaCameras.current.clear(); previousArea.current = ''; areaFocus.current = null;
+    controller.current?.setArea('');
+  }
+
   const graphConnections = useMemo(() => connections(model), [model]);
   const currentYaml = useMemo(() => writeBreadboard(model), [model]);
   const dirty = saved !== currentYaml;
@@ -130,7 +159,7 @@ export default function App() {
     if (selectedNative) { setTab('inspect'); setRightCollapsed(false); }
     setSelection(previous => {
       if (!selectedNative) return previous?.type === 'connection' || previous?.type === 'association' ? previous : null;
-      const [type, id] = selectedNative.split(':') as ['node' | 'slice' | 'connection' | 'association', string];
+      const [type, id] = selectedNative.split(':') as ['node' | 'connection' | 'association', string];
       return previous?.type === type && previous.id === id ? previous : { type, id };
     });
   }, [selectedNative]);
@@ -143,7 +172,7 @@ export default function App() {
     void readLocalFile(startupFile.current).then(opened => {
       if (cancelled) return;
       const next = withLayout(parseBreadboard(opened.text));
-      controller.current?.load(next);
+      resetAreaView(); controller.current?.load(next);
       setSaved(writeBreadboard(next)); setFilename(opened.name); setFileTarget(opened);
       setSelection(null); setPending(null); setUnlabeledAffordances(new Set()); setUnlabeledNodes(new Set()); setNotice(null);
       setLastDirectory(opened.path.slice(0, opened.path.lastIndexOf('/')) || '/');
@@ -160,13 +189,18 @@ export default function App() {
   }, [editor]);
 
   const selectNode = useCallback((id: string, row?: string) => {
+    if (model.nodes[id] && !visibleNodes.has(id)) {
+      const area = model.nodes[id]!.area;
+      areaFocus.current = { type: 'node', id, ...(row ? { row } : {}) };
+      setActiveArea(area && Object.hasOwn(model.areas ?? {}, area) ? area : area ? '' : UNASSIGNED_AREA);
+      return;
+    }
     editor?.select(nodeShapeId(id));
     setSelection({ type: 'node', id, ...(row ? { row } : {}) });
     setTab('inspect'); setRightCollapsed(false);
-  }, [editor]);
-  const selectSlice = (id: string) => { editor?.select(sliceShapeId(id)); setSelection({ type: 'slice', id }); setTab('inspect'); setRightCollapsed(false); };
-  const selectAssociation = (id: string) => { editor?.select(associationShapeId(id)); setSelection({ type: 'association', id }); setTab('inspect'); setRightCollapsed(false); };
-  const selectConnection = (id: string) => { editor?.select(edgeShapeId(id)); setSelection({ type: 'connection', id }); setTab('inspect'); setRightCollapsed(false); };
+  }, [editor, model, visibleNodes]);
+  const selectAssociation = (id: string) => { if (areaFilter && !editor?.getShape(associationShapeId(id))) { areaFocus.current = { type: 'association', id }; setActiveArea(''); return; } editor?.select(associationShapeId(id)); setSelection({ type: 'association', id }); setTab('inspect'); setRightCollapsed(false); };
+  const selectConnection = (id: string) => { if (areaFilter && !editor?.getShape(edgeShapeId(id))) { areaFocus.current = { type: 'connection', id }; setActiveArea(''); return; } editor?.select(edgeShapeId(id)); setSelection({ type: 'connection', id }); setTab('inspect'); setRightCollapsed(false); };
   const update = (next: Breadboard) => {
     try { controller.current?.update(next); setNotice(null); }
     catch (error) { setNotice({ text: errorText(error), error: true }); }
@@ -199,7 +233,7 @@ export default function App() {
     try {
       const next = withLayout(parseBreadboard(text));
       if (dirty && !window.confirm('Replace this breadboard and discard unsaved changes? Cancel to return and save them first.')) return false;
-      controller.current?.load(next);
+      resetAreaView(); controller.current?.load(next);
       rememberFile(target?.path ?? null);
       setSaved(writeBreadboard(next)); setFilename(name); setFileTarget(target); setSelection(null); setPending(null); setUnlabeledAffordances(new Set()); setUnlabeledNodes(new Set()); setNotice(null);
       return true;
@@ -229,23 +263,10 @@ export default function App() {
     if (!editor) return;
     const center = editor.getViewportPageBounds().center;
     const result = addNode(model, kind, { x: Math.round(center.x - 150), y: Math.round(center.y - 70) });
-    update(settleNodeDrops(result.model, [result.id]));
+    if (areaFilter && areaFilter !== UNASSIGNED_AREA) result.model.nodes[result.id]!.area = areaFilter;
+    update(result.model);
     setUnlabeledNodes(previous => new Set(previous).add(result.id));
     selectNode(result.id);
-  }
-
-  function createSlice() {
-    if (!editor) return;
-    const right = Math.max(0, ...Object.values(model.layout?.nodes ?? {}).map(point => point.x + 300), ...Object.values(model.layout?.slices ?? {}).map(box => box.x + box.w));
-    const result = addSlice(model, { x: right + 100, y: editor.getViewportPageBounds().center.y - 210 });
-    update(result.model); selectSlice(result.id);
-    editor.zoomToFit({ animation: { duration: 180 } });
-  }
-
-  function setSliceSize(id: string, axis: 'w' | 'h', value: string) {
-    const number = Number(value);
-    if (!Number.isFinite(number) || number <= 0) { setNotice({ text: 'Enter a positive size.', error: true }); return; }
-    update(resizeSlice(model, id, { ...model.layout!.slices![id]!, [axis]: number }));
   }
 
   function createConnection(from: string, to: string) {
@@ -256,9 +277,7 @@ export default function App() {
   function deleteSelection() {
     if (!selection) return;
     try {
-      if (selection.type === 'slice') {
-        update(deleteSlice(model, selection.id)); setSelection(null); editor?.selectNone();
-      } else if (selection.type === 'association') {
+      if (selection.type === 'association') {
         update(deleteAssociation(model, selection.id)); setSelection(null); editor?.selectNone();
       } else if (selection.type === 'connection') {
         update(deleteConnection(model, selection.id)); setSelection(null);
@@ -280,6 +299,7 @@ export default function App() {
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
+      if (areaManagerOpen) return;
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') { event.preventDefault(); event.stopImmediatePropagation(); if (yamlDraft !== null) setNotice({ text: 'Apply YAML edits before saving.', error: true }); else void saveDocument(event.shiftKey); return; }
       if (target?.matches('input, textarea, select') || target?.isContentEditable || yamlDraft !== null || fileDialog !== null || fileBusy) return;
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z') { event.preventDefault(); event.stopImmediatePropagation(); if (event.shiftKey) controller.current?.redo(); else controller.current?.undo(); }
@@ -292,7 +312,6 @@ export default function App() {
 
   const node = selection?.type === 'node' ? model.nodes[selection.id] : undefined;
   const row = selection?.type === 'node' && selection.row ? node?.affordances[selection.row] : undefined;
-  const slice = selection?.type === 'slice' ? model.slices?.[selection.id] : undefined;
   const connection = selection?.type === 'connection' ? graphConnections.find(edge => edge.id === selection.id) : undefined;
   const association = selection?.type === 'association' ? model.associations?.[selection.id] : undefined;
   const associationComponentId = association?.from.split('.')[0];
@@ -327,22 +346,29 @@ export default function App() {
 
     <main className={`workspace ${leftCollapsed ? 'is-left-collapsed' : ''} ${rightCollapsed ? 'is-right-collapsed' : ''}`}>
       <aside id="navigator-pane" className="navigator" aria-label="Places and components" hidden={leftCollapsed}>
-        <div className="panel-heading"><span>PLACES & COMPONENTS</span><span className="subtle">{Object.keys(model.nodes).length}</span></div>
+        <div className="panel-heading"><span>PLACES & COMPONENTS</span><span className="subtle">{visibleNodes.size}</span></div>
         <div className="node-list">
-          {Object.entries(model.nodes).map(([id, entry]) => <button key={id} className={`nav-item ${selection?.type === 'node' && selection.id === id ? 'active' : ''}`} onClick={() => selectNode(id)}>
+          {Object.entries(model.nodes).filter(([id]) => visibleNodes.has(id)).map(([id, entry]) => <button key={id} className={`nav-item ${selection?.type === 'node' && selection.id === id ? 'active' : ''}`} onClick={() => selectNode(id)}>
             <span className={`node-symbol ${entry.kind === 'component' ? 'component-symbol' : ''}`} style={nodeColorStyle(entry.color)} />
-            <span><span className="nav-label">{entry.label}</span><small>{Object.keys(entry.affordances).length} affordances{entry.slice && ` · ${model.slices?.[entry.slice]?.label ?? "Missing slice"}`}</small></span>
+            <span><span className="nav-label">{entry.label}</span><small>{Object.keys(entry.affordances).length} affordances{entry.area && ` · ${model.areas?.[entry.area]?.label ?? "Missing area"}`}</small></span>
           </button>)}
         </div>
         <div className="add-buttons"><button onClick={() => createNode('place')}><Icon name="plus" />Place</button><button onClick={() => createNode('component')}><Icon name="plus" />Component</button></div>
-        <div className="panel-heading slice-list-heading"><span>SLICES</span><button className="tiny-button" aria-label="Add slice" onClick={createSlice}><Icon name="plus" /></button></div>
-        {Object.entries(model.slices ?? {}).map(([id, entry]) => <button key={id} className={`nav-item ${selection?.type === 'slice' && selection.id === id ? 'active' : ''}`} onClick={() => selectSlice(id)}><span className="slice-symbol" /><span><span className="nav-label">{entry.label}</span><small>{sliceMembers(model, id).length} {sliceMembers(model, id).length === 1 ? 'member' : 'members'}</small></span></button>)}
-        {!Object.keys(model.slices ?? {}).length && <p className="help slice-list-help">Group places and components around a useful outcome.</p>}
-        <div className="navigator-footer"><span>EXAMPLES</span><button disabled={fileBusy} onClick={() => replaceDocument(example, 'two-paths.breadboard.yaml')}>Two paths from Home ↗</button><button disabled={fileBusy} onClick={() => replaceDocument(componentExample, 'publishing.breadboard.yaml')}>Component interaction ↗</button><button disabled={fileBusy} onClick={() => replaceDocument(sliceExample, 'slices.breadboard.yaml')}>Sliced journey ↗</button><button disabled={fileBusy} onClick={() => replaceDocument(orderingExample, 'ordering.breadboard.yaml')}>Order and line items ↗</button><button disabled={fileBusy} onClick={() => replaceDocument(loginExample, 'login.breadboard.yaml')}>Login and detours ↗</button></div>
+        <div className="navigator-footer"><span>EXAMPLES</span><button disabled={fileBusy} onClick={() => replaceDocument(example, 'two-paths.breadboard.yaml')}>Two paths from Home ↗</button><button disabled={fileBusy} onClick={() => replaceDocument(componentExample, 'publishing.breadboard.yaml')}>Component interaction ↗</button><button disabled={fileBusy} onClick={() => replaceDocument(orderingExample, 'ordering.breadboard.yaml')}>Order and line items ↗</button><button disabled={fileBusy} onClick={() => replaceDocument(loginExample, 'login.breadboard.yaml')}>Login and detours ↗</button></div>
       </aside>
 
       <section className="canvas-region" aria-label="Breadboard canvas">
-        {!pending && <div className="canvas-create-tools"><button onClick={() => createNode('place')}><Icon name="plus" />Place</button><button onClick={() => createNode('component')}><Icon name="plus" />Component</button><button onClick={createSlice}><Icon name="plus" />Slice</button></div>}
+        {!pending && <div className="canvas-create-tools">
+          <button onClick={() => createNode('place')}><Icon name="plus" />Place</button>
+          <button onClick={() => createNode('component')}><Icon name="plus" />Component</button>
+          <div className="canvas-area-tools">
+      <label>Area <select aria-label="Area view" value={areaFilter} onChange={event => { areaFocus.current = null; setActiveArea(event.target.value); }}>
+        <option value="">All areas</option><option value={UNASSIGNED_AREA}>Unassigned</option>
+        {Object.entries(model.areas ?? {}).map(([id, area]) => <option key={id} value={id}>{area.label}</option>)}
+      </select></label>
+      <button disabled={fileBusy} onClick={() => setAreaManagerOpen(true)}>Manage areas</button>
+    </div>
+        </div>}
         {pending && <div className="connect-banner"><span>Connect <strong>{endpointLabel(model, pending)}</strong> · choose a heading or affordance</span><button onClick={() => setPending(null)}>Cancel</button></div>}
         <CanvasInteraction.Provider value={{ pending, selectedRow: selection?.type === 'node' && selection.row ? `${selection.id}.${selection.row}` : null, select: selectNode, selectData: (nodeId, id) => {
           selectNode(nodeId);
@@ -354,6 +380,18 @@ export default function App() {
             return () => { canvas.dispose(); controller.current = null; };
           }} />
         </CanvasInteraction.Provider>
+        {areaFilter && !visibleNodes.size && <p className="empty-area-message">No residents here yet. Create a place or component, or assign existing elements in their Area selector.</p>}
+        {crossings.length > 0 && <details className="area-boundary-panel" open>
+          <summary>Outside this area · {crossings.length} connections</summary>
+          <div>{crossings.map(crossing => {
+            const outsideId = crossing.outside.split('.')[0]!, outside = model.nodes[outsideId];
+            const refLabel = (ref: string) => { const [id, row] = ref.split('.'); const node = model.nodes[id!]; return node ? `${node.label}${row ? ` / ${node.affordances[row]?.label ?? node.data?.[row]?.label ?? row}` : ''}` : `${ref} (missing)`; };
+            return <button key={crossing.id} disabled={!outside} onClick={() => selectNode(outsideId)} title="Open the connected element's area">
+              <span>{refLabel(crossing.inside)} {crossing.direction === 'out' ? '→' : '←'} {refLabel(crossing.outside)}</span>
+              <small>{crossing.label} · {outside?.area ? model.areas?.[outside.area]?.label ?? 'Missing area' : 'Unassigned'}</small>
+            </button>;
+          })}</div>
+        </details>}
         <div className="canvas-caption">Drag a heading to move · select an affordance to edit · + to connect</div>
         <button className="fit-button" onClick={() => editor?.zoomToFit({ animation: { duration: 180 } })}><Icon name="fit" />Fit to view</button>
       </section>
@@ -376,19 +414,6 @@ export default function App() {
             {!findings.length && <div className="check-success"><Icon name="check" /><span>References resolve and navigation scenarios reach their expected destinations.</span></div>}
             {findings.map((finding, index) => <div key={index} className={`finding finding-${finding.severity}`}><span className="finding-kind">{finding.severity}</span><p>{finding.message}</p></div>)}
             <p className="help check-note">Unfinished connections can still be saved. Deleting a place or affordance removes its outgoing paths. Incoming references and scenarios remain here until you resolve them.</p>
-          </> : slice && selection?.type === 'slice' ? <>
-            <div className="section-eyebrow">SLICE</div><h2>Edit slice</h2><code className="semantic-id">{selection.id}</code>
-            <Field label="Slice name" value={slice.label} onCommit={value => requiredLabel(value, next => { next.slices![selection.id]!.label = value; })} multiline />
-            <p className="help">Drag a place or component into this region to assign it. Drag the slice heading to move all its members. Resize with the corner handles.</p>
-            <div className="slice-size-fields"><Field label="Slice width" value={String(Math.round(model.layout!.slices![selection.id]!.w))} onCommit={value => setSliceSize(selection.id, 'w', value)} /><Field label="Slice height" value={String(Math.round(model.layout!.slices![selection.id]!.h))} onCommit={value => setSliceSize(selection.id, 'h', value)} /></div>
-            <div className="section-heading"><h3>Members</h3><span className="subtle">{sliceMembers(model, selection.id).length}</span></div>
-            {sliceMembers(model, selection.id).map(id => <div className="slice-member" key={id}><button className="inspector-row" onClick={() => selectNode(id)}>{model.nodes[id]!.label}<small>{model.nodes[id]!.kind}</small></button><button className="text-button" aria-label={`Unassign ${model.nodes[id]!.label}`} onClick={() => { update(assignSlice(model, id, null)); editor?.zoomToFit({ animation: { duration: 180 } }); }}>Unassign</button></div>)}
-            {!sliceMembers(model, selection.id).length && <p className="help">No members yet. Move a node here, or choose this slice in a node’s inspector.</p>}
-            <div className="section-heading"><h3>Connections across boundary</h3></div>
-            {boundaryConnections(model, selection.id).map(edge => <button className="inspector-row" key={edge.id} onClick={() => selectConnection(edge.id)}>{endpointLabel(model, edge.from)} → {endpointLabel(model, edge.to)}<small>{edge.kind}</small></button>)}
-            {!boundaryConnections(model, selection.id).length && <p className="help">No connections cross this slice’s boundary.</p>}
-            <p className="help">These are existing node connections. Use them to consider prerequisites and where to start.</p>
-            <button className="danger-button" onClick={deleteSelection}>Delete slice · keep members</button>
           </> : node && selection?.type === 'node' ? <>
             <div className="section-eyebrow">{row ? 'AFFORDANCE' : node.kind.toUpperCase()}</div><h2>{row ? 'Edit affordance' : 'Edit place or component'}</h2>
             <code className="semantic-id">{selection.id}{selection.row ? `.${selection.row}` : ''}</code>
@@ -426,10 +451,10 @@ export default function App() {
                 setUnlabeledNodes(previous => { const updated = new Set(previous); updated.delete(selection.id); return updated; });
               })} multiline />
               <label className="field"><span>Node kind</span><select value={node.kind} onChange={event => edit(next => { next.nodes[selection.id]!.kind = event.target.value as BreadboardNode['kind']; if (event.target.value === 'place') delete next.nodes[selection.id]!.data; })}><option value="place" disabled={Boolean(Object.keys(node.data ?? {}).length)}>Place</option><option value="component">Component</option></select></label>
-              <label className="field"><span>Slice</span><select aria-label="Slice" value={node.slice ?? ''} onChange={event => { update(assignSlice(model, selection.id, event.target.value || null)); editor?.zoomToFit({ animation: { duration: 180 } }); }}>
+              <label className="field"><span>Area</span><select aria-label="Area" value={node.area ?? ''} onChange={event => update(assignArea(model, selection.id, event.target.value || null))}>
                 <option value="">Unassigned</option>
-                {node.slice && !Object.hasOwn(model.slices ?? {}, node.slice) && <option value={node.slice}>{node.slice} (missing)</option>}
-                {Object.entries(model.slices ?? {}).map(([id, entry]) => <option value={id} key={id}>{entry.label}</option>)}
+                {node.area && !Object.hasOwn(model.areas ?? {}, node.area) && <option value={node.area}>{node.area} (missing)</option>}
+                {Object.entries(model.areas ?? {}).map(([id, area]) => <option value={id} key={id}>{area.label}</option>)}
               </select></label>
               <fieldset className="node-color-picker"><legend>Color</legend>
                 <div className="color-swatches" role="group" aria-label="Place or component color">
@@ -475,7 +500,7 @@ export default function App() {
       </aside>
     </main>
     <footer className="status-bar">
-      <div className="status-details"><span className="status-file" title={fileTarget?.path}>{fileTarget?.path ?? filename}{!fileTarget && <span> · Not saved to a file</span>}</span><span>{Object.keys(model.nodes).length} nodes · {Object.keys(model.slices ?? {}).length} slices · {graphConnections.length} connections · {Object.keys(model.associations ?? {}).length} associations · {model.scenarios?.length ?? 0} scenarios</span><span className="local-indicator">Local workspace</span></div>
+      <div className="status-details"><span className="status-file" title={fileTarget?.path}>{fileTarget?.path ?? filename}{!fileTarget && <span> · Not saved to a file</span>}</span><span>{Object.keys(model.nodes).length} nodes · {graphConnections.length} connections · {Object.keys(model.associations ?? {}).length} associations · {model.scenarios?.length ?? 0} scenarios</span><span className="local-indicator">Local workspace</span></div>
       <div className="canvas-shortcuts" aria-label="Keyboard and mouse instructions">
         <span><strong>Pan</strong> <kbd>Space</kbd> + drag or two-finger scroll</span>
         <span><strong>Zoom</strong> pinch or <kbd>⌘ / Ctrl</kbd> + scroll</span>
@@ -485,6 +510,7 @@ export default function App() {
       </div>
     </footer>
 
+    {areaManagerOpen && <AreaManager model={model} onChange={update} onClose={() => setAreaManagerOpen(false)} />}
     {fileDialog !== null && <FileDialog mode={fileDialog} directory={fileTarget ? fileTarget.path.slice(0, fileTarget.path.lastIndexOf('/')) : lastDirectory} filename={filename} onChoose={chooseFile} onCancel={() => setFileDialog(null)} />}
     {yamlDraft !== null && <div className="modal-backdrop"><section className="yaml-modal" role="dialog" aria-modal="true" aria-labelledby="yaml-title"><div className="modal-heading"><div><span className="section-eyebrow">BREADBOARD FILE</span><h2 id="yaml-title">Read and edit the YAML</h2></div><button aria-label="Close YAML" onClick={() => setYamlDraft(null)}>×</button></div><p className="help">Applying validates the document first. Metadata, scenarios, and layout remain part of the file.</p><textarea aria-label="YAML document" spellCheck={false} value={yamlDraft} onChange={event => setYamlDraft(event.target.value)} />{notice?.error && <div className="yaml-error" role="alert">{notice.text}</div>}<div className="modal-actions"><button onClick={() => setYamlDraft(null)}>Cancel</button><button className="primary" onClick={() => {
       try { const next = withLayout(parseBreadboard(yamlDraft)); controller.current?.update(next); editor?.selectNone(); setYamlDraft(null); setPending(null); setSelection(null); setNotice(null); }

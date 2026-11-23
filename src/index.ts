@@ -2,6 +2,7 @@ import { Ajv2020 } from 'ajv/dist/2020.js';
 import { isAlias, LineCounter, parseDocument, stringify, visit } from 'yaml';
 import schema from '../schema/breadboard.schema.json' with { type: 'json' };
 import type { Breadboard } from './model.ts';
+import { hasLegacyGroups, importLegacyGroups, legacyGroupDefinition, legacyGroupLayout } from './legacy.ts';
 
 export type * from './model.ts';
 export { NODE_COLORS } from './colors.ts';
@@ -33,6 +34,14 @@ const validator = new Ajv2020({
   strict: true,
   ownProperties: true,
 }).compile<Breadboard>(schema);
+
+const legacyValidator = new Ajv2020({ allErrors: true, strict: true, ownProperties: true }).compile({
+  ...schema,
+  properties: { ...schema.properties, slices: legacyGroupDefinition,
+    layout: { ...schema.properties.layout, properties: { ...schema.properties.layout.properties, slices: legacyGroupLayout } },
+  },
+  $defs: { ...schema.$defs, node: { ...schema.$defs.node, properties: { ...schema.$defs.node.properties, slice: { $ref: '#/$defs/id' } } } },
+});
 
 const escapePointer = (key: string): string => key.replace(/~/g, '~0').replace(/\//g, '~1');
 
@@ -78,15 +87,19 @@ function assertJsonValue(value: unknown, path = '', depth = 0, ancestors = new S
 }
 
 /** Validate shape without mutating, filling defaults, or checking graph behavior. */
-export function validateBreadboard(value: unknown): asserts value is Breadboard {
+function validateWith(value: unknown, validate: typeof validator | typeof legacyValidator): void {
   assertJsonValue(value);
-  if (validator(value)) return;
-  throw new BreadboardError((validator.errors ?? []).map(error => {
+  if (validate(value)) return;
+  throw new BreadboardError((validate.errors ?? []).map(error => {
     let path = error.instancePath;
     if (error.keyword === 'required') path += `/${escapePointer(String(error.params.missingProperty))}`;
     if (error.keyword === 'additionalProperties') path += `/${escapePointer(String(error.params.additionalProperty))}`;
     return { code: 'schema', path, message: error.message ?? 'Schema validation failed.' };
   }));
+}
+
+export function validateBreadboard(value: unknown): asserts value is Breadboard {
+  validateWith(value, validator);
 }
 
 function checkByteLimit(text: string): void {
@@ -119,7 +132,8 @@ export function parseBreadboard(text: string): Breadboard {
     if (path.length > MAX_VALUE_DEPTH * 2) fail('limit', '', `Maximum nesting depth is ${MAX_VALUE_DEPTH}.`);
     if (isAlias(node)) fail('yaml', '', 'YAML aliases are not supported; write values explicitly.');
   });
-  const value: unknown = document.toJS({ maxAliasCount: 0 });
+  let value: unknown = document.toJS({ maxAliasCount: 0 });
+  if (hasLegacyGroups(value)) { validateWith(value, legacyValidator); value = importLegacyGroups(value); }
   validateBreadboard(value);
   return value;
 }

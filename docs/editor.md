@@ -134,11 +134,6 @@ Hover's two paths have not yet been supplied.
 
 ## Subsequent milestones
 
-Named, outcome-oriented slices are implemented in the breadboard editor. The
-[slice design and controls](slices.md) describe creating regions, exclusive
-whole-node membership, dragging, resizing, unassignment, boundary inspection,
-and YAML persistence. Slices have no separate wires or automatic build order.
-
 1. Reviewed hand-drawn import, following `image-import.md`.
 2. Scenario walkthroughs and checks with findings attached to graph IDs.
 3. Component contracts and explicit state/outcome semantics as real examples demand.
@@ -243,3 +238,26 @@ available for **From affordance** and place-only destination pickers.
 
 The left Places and components pane starts collapsed. Use **Show left pane** in
 the document toolbar to open it, and **Hide left pane** to collapse it again.
+
+### Named areas and focused views
+
+Use **Manage areas** beside the canvas **+Place** and **+Component** buttons to predefine names such as **Create an Order**.
+Select a place or component and choose its **Area** in the inspector. Area
+membership is explicit; dragging an element does not change it. The area name
+appears in the element's heading and in the navigator.
+
+The **Area** toolbar switches between **All areas**, **Unassigned**, and each named
+area. The canvas and navigator show that view's residents. New places and
+components inherit the active named area, or start Unassigned in the other views.
+Switching views preserves element positions and remembers each view's pan/zoom
+for the current session. Filtering does not mark the document as changed.
+
+In a focused view, **Outside this area** lists incoming and outgoing behavioral
+connections, data associations, and login dependencies to hidden elements. Select
+an entry to open the connected element's area. The Connections and Checks tabs
+still inspect the entire document. Saving always includes all areas and hidden
+elements. Reloading opens All areas.
+
+Rename or delete areas centrally in **Manage areas**. Deleting an area leaves its
+residents Unassigned and keeps their data, positions and connections; Undo restores
+the definition and membership. Areas have no spatial regions or drag-to-assign behavior.

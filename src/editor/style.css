@@ -61,7 +61,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .navigator-footer > span { display: block; font-size: 9px; color: #89917e; letter-spacing: 1px; margin-bottom: 7px; }
 .navigator-footer button { display: block; background: transparent; border: none; font-size: 10px; padding: 6px 0; color: #66765f; font-weight: 400; }
 .canvas-region { grid-column: 2; grid-row: 1; position: relative; min-width: 0; min-height: 0; background: #fdfdf9; }
-.canvas-create-tools { position: absolute; z-index: 100; top: 16px; left: 18px; display: flex; gap: 6px; }
+.canvas-create-tools { position: absolute; z-index: 100; top: 16px; left: 18px; display: flex; align-items: center; flex-wrap: wrap; gap: 6px; max-width: calc(100% - 36px); }
 .canvas-create-tools button { font-size: 10px; padding: 7px 9px; background: #fffffff0; box-shadow: 0 2px 7px #283e2410; }
 .canvas-region .tl-container { --tl-color-background: #fdfdf9; --tl-color-selected: #62816a; }
 .canvas-caption { position: absolute; z-index: 100; bottom: 20px; left: 20px; pointer-events: none; font-size: 9px; line-height: 1.5; color: #949c8f; max-width: calc(100% - 160px); }
@@ -188,19 +188,6 @@ h3 { font-size: 12px; font-weight: 550; margin: 0; }
 .color-selection { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 12px; font-size: 10px; color: #78846e; }
 .color-selection .text-button { padding: 2px 0; }
 
-.breadboard-slice { width: 100%; height: 100%; border: 2px dashed #aab39b; border-radius: 12px; background: #f0f2e544; pointer-events: none; }
-.slice-heading { height: 52px; display: flex; align-items: center; gap: 10px; padding: 0 20px; border-bottom: 1px solid #d8ddcc; background: #edf1e5; border-radius: 10px 10px 0 0; cursor: grab; color: #475c3b; }
-.slice-heading:active { cursor: grabbing; }
-.slice-marker { font-size: 8px; letter-spacing: 1.5px; color: #7e8f6d; flex-shrink: 0; }
-.slice-label { font-size: 16px; font-weight: 600; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
-.slice-count { margin-left: auto; font-size: 10px; color: #7c8d70; white-space: nowrap; }
-.slice-symbol { width: 15px; height: 14px; flex: 0 0 15px; border: 1.5px dashed #8a9a76; border-radius: 3px; background: #edf1e5; margin-top: 2px; }
-.slice-list-heading { margin-top: 8px; border-top: 1px solid var(--line); padding-top: 12px; min-height: 38px; }
-.slice-list-help { padding: 0 10px; }
-.slice-size-fields { display: flex; gap: 12px; }
-.slice-size-fields .field { min-width: 0; flex: 1; }
-.slice-member { display: flex; gap: 8px; align-items: center; border-bottom: 1px solid #edefe7; }
-.slice-member .inspector-row { min-width: 0; flex: 1; border-bottom: 0; }
 
 .data-row { border-top: 1px dashed #a8b5b1; background: #eef4f380; }
 .data-mark { font-size: 9px; letter-spacing: .06em; color: #557571; margin-right: 12px; }
@@ -220,3 +207,17 @@ h3 { font-size: 12px; font-weight: 550; margin: 0; }
 .reference-filter { display: flex; align-items: center; gap: 4px; }
 .reference-filter input { flex: 1; min-width: 0; }
 .reference-filter-status { color: #8a9283; font-size: 10px; font-weight: 400; }
+.canvas-area-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding-left: 10px; margin-left: 4px; border-left: 1px solid var(--line); }
+.canvas-area-tools label { display: flex; align-items: center; gap: 6px; font-size: 10px; color: #657260; }
+.canvas-area-tools select { max-width: 220px; padding: 6px 9px; border: 1px solid #dedfd8; border-radius: 5px; background: #fffffff0; font-size: 10px; box-shadow: 0 2px 7px #283e2410; }
+.area-manager { width: min(520px, 92vw); max-height: 85vh; overflow: auto; background: white; border-radius: 10px; padding: 24px; }
+.area-definition { margin-top: 16px; padding-top: 4px; border-top: 1px solid var(--line); }
+.area-definition small { color: #8a9283; margin-right: 16px; }
+.area-boundary-panel { position: absolute; z-index: 100; bottom: 60px; right: 18px; width: min(300px, 80%); background: #fffffff2; border: 1px solid #d9dfd5; border-radius: 6px; font-size: 11px; box-shadow: 0 2px 8px #263e2310; }
+.area-boundary-panel summary { padding: 10px; cursor: pointer; color: #5b705c; }
+.area-boundary-panel > div { max-height: 220px; overflow: auto; }
+.area-boundary-panel button { display: block; padding: 8px 10px; border: 0; border-top: 1px solid #edefe7; width: 100%; white-space: normal; text-align: left; font-size: 10px; background: transparent; }
+.area-boundary-panel small { display: block; margin-top: 4px; color: #879180; font-weight: 400; }
+.empty-area-message { position: absolute; top: 90px; left: 24px; right: 24px; color: #8a9283; font-size: 12px; }
+.node-area-label { text-transform: none; letter-spacing: 0; }
+@media (max-width: 600px) { .canvas-area-tools { padding-left: 6px; margin-left: 0; } .canvas-area-tools select { max-width: 160px; } }
