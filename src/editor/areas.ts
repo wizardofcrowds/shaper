@@ -2,8 +2,8 @@ import type { Breadboard } from '../model.ts';
 import { connections, uniqueId } from './model.ts';
 
 export const UNASSIGNED_AREA = '__unassigned__';
-export function areaNodeIds(model: Breadboard, filter: string): Set<string> {
-  return new Set(Object.entries(model.nodes).filter(([, node]) => !filter || (filter === UNASSIGNED_AREA ? !node.area : node.area === filter)).map(([id]) => id));
+export function areaNodeIds(model: Breadboard, filter: string, tag = ''): Set<string> {
+  return new Set(Object.entries(model.nodes).filter(([, node]) => (!filter || (filter === UNASSIGNED_AREA ? !node.area : node.area === filter)) && (!tag || node.tags?.includes(tag))).map(([id]) => id));
 }
 function areaName(model: Breadboard, label: string, except?: string) {
   const name = label.trim();
@@ -40,9 +40,9 @@ export function assignArea(model: Breadboard, nodeId: string, area: string | nul
 }
 export interface AreaCrossing { id: string; inside: string; outside: string; direction: 'out' | 'in'; label: string }
 /** Include hidden login dependencies as well as ordinary wires and data associations. */
-export function areaCrossings(model: Breadboard, filter: string): AreaCrossing[] {
-  if (!filter) return [];
-  const visible = areaNodeIds(model, filter), result: AreaCrossing[] = [];
+export function areaCrossings(model: Breadboard, filter: string, tag = ''): AreaCrossing[] {
+  if (!filter && !tag) return [];
+  const visible = areaNodeIds(model, filter, tag), result: AreaCrossing[] = [];
   const add = (id: string, from: string, to: string, label: string) => {
     const source = visible.has(from.split('.')[0]!), target = visible.has(to.split('.')[0]!);
     if (source === target) return;

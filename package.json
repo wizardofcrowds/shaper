@@ -8,7 +8,8 @@
   "packageManager": "pnpm@10.30.3",
   "exports": {
     ".": "./src/index.ts",
-    "./schema": "./schema/breadboard.schema.json"
+    "./schema": "./schema/breadboard.schema.json",
+    "./geometry": "./src/geometry.ts"
   },
   "scripts": {
     "dev": "vite --host 127.0.0.1",

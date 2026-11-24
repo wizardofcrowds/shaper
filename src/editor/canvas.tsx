@@ -1,3 +1,4 @@
+import { tagRows, tagChipWidth, TAG_HEIGHT, AFFORDANCE_TAG_HEIGHT, NODE_TAG_WIDTH, AFFORDANCE_TAG_WIDTH } from '../geometry.ts';
 import { areaNodeIds } from './areas.ts';
 import { associationGeometry, deleteAssociation } from './data.ts';
 import { createContext, useContext } from 'react';
@@ -11,10 +12,10 @@ import type { Breadboard } from '../model.ts';
 import { nodeColorStyle } from './colors.ts';
 import { affordanceIds, deleteConnection, deleteNode, edgeGeometry, ATTRIBUTE_HEIGHT, HEADER_HEIGHT, NODE_WIDTH, nodeHeight, ROW_HEIGHT, withLayout } from './model.ts';
 
-interface Row { id: string; label: string; kind: string }
-interface DataRow extends Row { attributes: string[] }
-interface NodeProps { nodeId: string; label: string; kind: string; color: string; areaLabel: string; rows: Row[]; data: DataRow[]; w: number; h: number }
-interface EdgeProps { loginRequired: boolean; association: boolean; fromCardinality: string; toCardinality: string; connectionId: string; label: string; kind: string; sx: number; sy: number; mx: number; ex: number; ey: number }
+interface Row { id: string; label: string; kind: string; tags: string[]; notes: string }
+interface DataRow extends Pick<Row, 'id' | 'label' | 'kind'> { attributes: string[] }
+interface NodeProps { tags: string[]; notes: string; nodeId: string; label: string; kind: string; color: string; areaLabel: string; rows: Row[]; data: DataRow[]; w: number; h: number }
+interface EdgeProps { notes: string; loginRequired: boolean; association: boolean; fromCardinality: string; toCardinality: string; connectionId: string; label: string; kind: string; sx: number; sy: number; mx: number; ex: number; ey: number }
 
 declare module 'tldraw' {
   interface TLGlobalShapePropsMap {
@@ -38,9 +39,18 @@ interface Interaction {
 }
 export const CanvasInteraction = createContext<Interaction>({ pending: null, selectedRow: null, select() {}, selectData() {}, startConnection() {}, target() {} });
 
+function CanvasTags({ tags, small = false }: { tags: string[]; small?: boolean }) {
+  const width = small ? AFFORDANCE_TAG_WIDTH : NODE_TAG_WIDTH;
+  return <div className={`canvas-tags ${small ? 'affordance-tags' : ''}`}>
+    {tagRows(tags, width).map((row, index) => <div className="canvas-tag-row" key={index} style={{ height: small ? AFFORDANCE_TAG_HEIGHT : TAG_HEIGHT, width }}>
+      {row.map(tag => <span key={tag} className={`canvas-tag ${tag.includes(':') ? 'prefixed-tag' : ''}`} title={tag} style={{ width: tagChipWidth(tag, width) }}>{tag}</span>)}
+    </div>)}
+  </div>;
+}
+
 function NodeContent({ shape }: { shape: NodeShape }) {
   const interaction = useContext(CanvasInteraction);
-  const { nodeId, label, kind, rows, data, w, h } = shape.props;
+  const { nodeId, label, kind, rows, data, tags, notes, w, h } = shape.props;
   return <HTMLContainer style={{ width: w, height: h, pointerEvents: 'all' }}>
     <div className={`breadboard-node ${interaction.pending ? 'is-target' : ''}`} data-node-id={nodeId} style={nodeColorStyle(shape.props.color)}>
       <div className="node-heading" style={{ height: HEADER_HEIGHT }} onPointerDown={event => {
@@ -48,20 +58,22 @@ function NodeContent({ shape }: { shape: NodeShape }) {
       }}>
         <div className="node-kind">{kind === 'place' ? 'PLACE' : 'COMPONENT'}{shape.props.areaLabel && <span className="node-area-label" title={shape.props.areaLabel}> · {shape.props.areaLabel}</span>}</div>
         <div className="node-label" title={label}>{label}</div>
+        {notes.trim() && <span className="note-marker node-note" title={notes} aria-label="Place or component notes">ⓘ</span>}
       </div>
-      {rows.map(row => <div key={row.id} className={`node-row ${interaction.selectedRow === `${nodeId}.${row.id}` ? 'is-selected' : ''}`}
-        style={{ height: ROW_HEIGHT }} onPointerDown={event => {
-          event.stopPropagation();
-          if (interaction.pending) interaction.target(`${nodeId}.${row.id}`);
-          else interaction.select(nodeId, row.id);
-        }}>
+      <CanvasTags tags={tags} />
+      {rows.map(row => <div className="affordance-block" key={row.id} onPointerDown={event => {
+        event.stopPropagation();
+        if (interaction.pending) interaction.target(`${nodeId}.${row.id}`); else interaction.select(nodeId, row.id);
+      }}><div className={`node-row ${interaction.selectedRow === `${nodeId}.${row.id}` ? 'is-selected' : ''}`}
+        style={{ height: ROW_HEIGHT }}>
         <span className={`affordance-mark mark-${row.kind}`} aria-hidden="true">{row.kind === 'copy' ? '“' : row.kind === 'input' ? '▱' : row.kind === 'event' ? '↗' : '·'}</span>
         <span className="row-label" title={row.label}>{row.label}</span>
+        {row.notes.trim() && <span className="note-marker" title={row.notes} aria-label="Affordance notes">ⓘ</span>}
         <button className={`port ${interaction.pending === `${nodeId}.${row.id}` ? 'is-active' : ''}`}
           aria-label={`Connect from ${label}: ${row.label}`} title="Start a connection"
           onPointerDown={event => event.stopPropagation()}
           onClick={event => { event.stopPropagation(); interaction.startConnection(`${nodeId}.${row.id}`); }}>+</button>
-      </div>)}
+      </div><CanvasTags tags={row.tags} small /></div>)}
       {!rows.length && <div className="empty-node" style={{ height: ROW_HEIGHT }}>{kind === 'component' ? 'No affordances' : 'Add an affordance to shape this place.'}</div>}
       {data.map(row => <div key={row.id} className="data-block" onPointerDown={event => {
         event.stopPropagation();
@@ -79,11 +91,11 @@ function NodeContent({ shape }: { shape: NodeShape }) {
 export class BreadboardNodeUtil extends ShapeUtil<NodeShape> {
   static override type = 'breadboard-node' as const;
   static override props = {
-    nodeId: T.string, label: T.string, kind: T.string, color: T.string, areaLabel: T.string, w: T.number, h: T.number,
-    rows: T.arrayOf(T.object({ id: T.string, label: T.string, kind: T.string })),
+    tags: T.arrayOf(T.string), notes: T.string, nodeId: T.string, label: T.string, kind: T.string, color: T.string, areaLabel: T.string, w: T.number, h: T.number,
+    rows: T.arrayOf(T.object({ id: T.string, label: T.string, kind: T.string, tags: T.arrayOf(T.string), notes: T.string })),
     data: T.arrayOf(T.object({ id: T.string, label: T.string, kind: T.string, attributes: T.arrayOf(T.string) })),
   };
-  getDefaultProps(): NodeProps { return { nodeId: '', label: '', kind: 'place', color: '', areaLabel: '', rows: [], data: [], w: NODE_WIDTH, h: 144 }; }
+  getDefaultProps(): NodeProps { return { tags: [], notes: '', nodeId: '', label: '', kind: 'place', color: '', areaLabel: '', rows: [], data: [], w: NODE_WIDTH, h: 144 }; }
   getGeometry(shape: NodeShape) { return new Rectangle2d({ width: shape.props.w, height: shape.props.h, isFilled: true }); }
   override canResize() { return false; }
   override canEdit() { return false; }
@@ -109,8 +121,8 @@ export class BreadboardEdgeUtil extends ShapeUtil<EdgeShape> {
   }
 
   static override type = 'breadboard-edge' as const;
-  static override props = { loginRequired: T.boolean, association: T.boolean, fromCardinality: T.string, toCardinality: T.string, connectionId: T.string, label: T.string, kind: T.string, sx: T.number, sy: T.number, mx: T.number, ex: T.number, ey: T.number };
-  getDefaultProps(): EdgeProps { return { loginRequired: false, association: false, fromCardinality: '', toCardinality: '', connectionId: '', label: '', kind: 'navigate', sx: 0, sy: 0, mx: 50, ex: 100, ey: 50 }; }
+  static override props = { notes: T.string, loginRequired: T.boolean, association: T.boolean, fromCardinality: T.string, toCardinality: T.string, connectionId: T.string, label: T.string, kind: T.string, sx: T.number, sy: T.number, mx: T.number, ex: T.number, ey: T.number };
+  getDefaultProps(): EdgeProps { return { notes: '', loginRequired: false, association: false, fromCardinality: '', toCardinality: '', connectionId: '', label: '', kind: 'navigate', sx: 0, sy: 0, mx: 50, ex: 100, ey: 50 }; }
   getGeometry(shape: EdgeShape) {
     const p = shape.props;
     return new Polyline2d({ points: [new Vec(p.sx, p.sy), new Vec(p.mx, p.sy), new Vec(p.mx, p.ey), new Vec(p.ex, p.ey)] });
@@ -134,7 +146,7 @@ export class BreadboardEdgeUtil extends ShapeUtil<EdgeShape> {
         <text x={p.sx + 8} y={p.sy - 9} fill="#607467" fontSize="11">{p.fromCardinality || '?'}</text>
         <text x={p.ex + (direction > 0 ? -12 : 12)} y={p.ey - 9} textAnchor={direction > 0 ? 'end' : 'start'} fill="#607467" fontSize="11">{p.toCardinality || '?'}</text>
       </>}
-      <text x={p.association ? p.mx + 9 : (p.sx + p.mx) / 2} y={p.association ? (p.sy + p.ey) / 2 - 9 : p.sy - (p.loginRequired ? 34 : 9)} textAnchor="middle" fill={dataAccess ? stroke : '#607467'} fontSize="10" fontFamily="system-ui, sans-serif">{(p.label || (p.kind === 'navigate' || p.association ? '' : p.kind === 'detour' ? 'detour · returns here' : p.kind)).slice(0, p.association ? 60 : 32)}</text>
+      <text x={p.association ? p.mx + 9 : (p.sx + p.mx) / 2} y={p.association ? (p.sy + p.ey) / 2 - 9 : p.sy - (p.loginRequired ? 34 : 9)} textAnchor="middle" fill={dataAccess ? stroke : '#607467'} fontSize="10" fontFamily="system-ui, sans-serif">{(p.label || (p.kind === 'navigate' || p.association ? '' : p.kind === 'detour' ? 'detour · returns here' : p.kind)).slice(0, p.association ? 60 : 32)}{p.notes.trim() && <tspan className="note-marker" style={{ pointerEvents: 'all' }} aria-label="Connection notes"><title>{p.notes}</title> ⓘ</tspan>}</text>
     </SVGContainer>;
   }
   getIndicatorPath(shape: EdgeShape) { const p = shape.props; return new Path2D(`M${p.sx},${p.sy} H${p.mx} V${p.ey} H${p.ex}`); }
@@ -158,20 +170,21 @@ export function createController(editor: Editor, initial: Breadboard) {
   let projected: Breadboard | undefined;
   let disposed = false;
   let areaFilter = '';
+  let tagFilter = '';
 
   function project(model: Breadboard) {
     if (projecting || disposed) return;
     projecting = true;
     try {
       editor.run(() => {
-        const visible = areaNodeIds(model, areaFilter);
+        const visible = areaNodeIds(model, areaFilter, tagFilter);
         const desired = new Set<string>();
         for (const [id, node] of Object.entries(model.nodes)) {
           if (!visible.has(id)) continue;
           const shapeId = nodeShapeId(id);
           desired.add(shapeId);
           const position = model.layout!.nodes![id]!;
-          const props: NodeProps = { nodeId: id, label: node.label, kind: node.kind, color: node.color ?? '', areaLabel: node.area ? model.areas?.[node.area]?.label ?? 'Missing area' : '', w: NODE_WIDTH, h: nodeHeight(node), rows: affordanceIds(node).map(rowId => ({ id: rowId, label: node.affordances[rowId]!.label, kind: node.affordances[rowId]!.kind })), data: Object.keys(node.data ?? {}).sort().map(key => ({ id: key, label: node.data![key]!.label, kind: 'data', attributes: node.data![key]!.attributes ?? [] })) };
+          const props: NodeProps = { tags: node.tags ?? [], notes: node.notes ?? '', nodeId: id, label: node.label, kind: node.kind, color: node.color ?? '', areaLabel: node.area ? model.areas?.[node.area]?.label ?? 'Missing area' : '', w: NODE_WIDTH, h: nodeHeight(node), rows: affordanceIds(node).map(rowId => ({ id: rowId, label: node.affordances[rowId]!.label, kind: node.affordances[rowId]!.kind, tags: node.affordances[rowId]!.tags ?? [], notes: node.affordances[rowId]!.notes ?? '' })), data: Object.keys(node.data ?? {}).sort().map(key => ({ id: key, label: node.data![key]!.label, kind: 'data', attributes: node.data![key]!.attributes ?? [] })) };
           const existing = editor.getShape<NodeShape>(shapeId);
           if (!existing) editor.createShape<NodeShape>({ id: shapeId, type: 'breadboard-node', ...position, props });
           else if (existing.x !== position.x || existing.y !== position.y || JSON.stringify(existing.props) !== JSON.stringify(props)) editor.updateShape<NodeShape>({ id: shapeId, type: 'breadboard-node', ...position, props });
@@ -181,7 +194,7 @@ export function createController(editor: Editor, initial: Breadboard) {
           if (!visible.has(connection.from.split('.')[0]!) || !visible.has(connection.to.split('.')[0]!)) continue;
           const shapeId = edgeShapeId(id);
           desired.add(shapeId);
-          const props: EdgeProps = { loginRequired: Boolean(connection.login), association: false, fromCardinality: '', toCardinality: '', connectionId: id, label: connection.label ?? '', kind: connection.kind, sx, sy, mx, ex, ey };
+          const props: EdgeProps = { notes: connection.notes ?? '', loginRequired: Boolean(connection.login), association: false, fromCardinality: '', toCardinality: '', connectionId: id, label: connection.label ?? '', kind: connection.kind, sx, sy, mx, ex, ey };
           const existing = editor.getShape<EdgeShape>(shapeId);
           if (!existing) editor.createShape<EdgeShape>({ id: shapeId, type: 'breadboard-edge', x, y, props });
           else if (existing.x !== x || existing.y !== y || JSON.stringify(existing.props) !== JSON.stringify(props)) editor.updateShape<EdgeShape>({ id: shapeId, type: 'breadboard-edge', x, y, props });
@@ -191,7 +204,7 @@ export function createController(editor: Editor, initial: Breadboard) {
           if (!visible.has(association.from.split('.')[0]!) || !visible.has(association.to.split('.')[0]!)) continue;
           const shapeId = associationShapeId(id);
           desired.add(shapeId);
-          const props: EdgeProps = { loginRequired: false, association: true, connectionId: id, label: association.label ?? '', kind: 'association', fromCardinality: association.from_cardinality ?? '', toCardinality: association.to_cardinality ?? '', sx, sy, mx, ex, ey };
+          const props: EdgeProps = { notes: '', loginRequired: false, association: true, connectionId: id, label: association.label ?? '', kind: 'association', fromCardinality: association.from_cardinality ?? '', toCardinality: association.to_cardinality ?? '', sx, sy, mx, ex, ey };
           const existing = editor.getShape<EdgeShape>(shapeId);
           if (!existing) editor.createShape<EdgeShape>({ id: shapeId, type: 'breadboard-edge', x, y, props });
           else if (existing.x !== x || existing.y !== y || JSON.stringify(existing.props) !== JSON.stringify(props)) editor.updateShape<EdgeShape>({ id: shapeId, type: 'breadboard-edge', x, y, props });
@@ -253,7 +266,7 @@ export function createController(editor: Editor, initial: Breadboard) {
 
   return {
     load,
-    setArea(filter: string) { areaFilter = filter; project(readModel(editor)); },
+    setView(area: string, tag = '') { areaFilter = area; tagFilter = tag; project(readModel(editor)); },
     update(model: Breadboard) {
       const next = withLayout(model);
       validateBreadboard(next);

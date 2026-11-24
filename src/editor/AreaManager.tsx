@@ -1,3 +1,4 @@
+import { MetadataView } from './Annotations.tsx';
 import { useState } from 'react';
 import type { Breadboard } from '../model.ts';
 import { addArea, renameArea, deleteArea } from './areas.ts';
@@ -21,6 +22,7 @@ export function AreaManager({ model, onChange, onClose }: { model: Breadboard; o
       {error && <p className="attribute-error" role="alert">{error}</p>}
       <div className="area-definitions">{Object.entries(model.areas ?? {}).map(([id, area]) => <section className="area-definition" key={id} data-area-id={id}>
         <Field label="Area name" value={area.label} onCommit={label => { apply(() => renameArea(model, id, label)); }} />
+        <MetadataView metadata={area.metadata} />
         <small>{Object.values(model.nodes).filter(node => node.area === id).length} residents</small>
         <button className="danger-button" aria-label={`Delete area ${area.label}`} onClick={() => apply(() => deleteArea(model, id))}>Delete area</button>
       </section>)}</div>

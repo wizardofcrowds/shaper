@@ -1,0 +1,71 @@
+version: '0.1'
+title: Onboarding — tags, notes, and source context
+areas:
+  onboarding:
+    label: Employee onboarding
+  review:
+    label: Staff review
+nodes:
+  onb_team:
+    kind: place
+    label: Onboarding · Team
+    area: onboarding
+    tags: [role:lms_admin, role:employer_hr, role:employer_payroll]
+    notes: |
+      Should Payroll be able to invite people here?
+      Confirm the role boundary before implementation.
+    metadata:
+      source: src/pages/HrOnboarding.tsx:722
+      trigger: step=team in /employer/onboarding
+      roles: [lms_admin, employer_hr, employer_payroll]
+      context:
+        seeded_data: true
+        entry: {from: invite, optional: false}
+    affordances:
+      save_continue:
+        kind: action
+        label: Save & Continue
+        tags: [role:lms_admin]
+        notes: Confirm this destination with the onboarding owner.
+        metadata:
+          source: src/pages/HrOnboarding.tsx:736
+          leads_to_hint: onb_policies
+        connections:
+          policies:
+            kind: navigate
+            to: onb_policies
+            notes: Only after the team setup is complete.
+            metadata:
+              evidence: Product walkthrough
+      clear_sample_data:
+        kind: action
+        label: Clear sample data
+        tags: [role:lms_admin]
+        metadata:
+          shows_when: Sample data is seeded
+      invite:
+        kind: action
+        label: Invite team member
+        tags: [role:employer_hr]
+        metadata:
+          leads_to_hint: invitations
+  onb_policies:
+    kind: place
+    label: Onboarding · Policies
+    area: onboarding
+    tags: [role:lms_admin, role:employer_hr, role:employer_payroll]
+    metadata:
+      source: src/pages/Policies.tsx:40
+    affordances: {}
+  review:
+    kind: place
+    label: Payroll review
+    area: review
+    tags: [role:employer_payroll, needs-review]
+    notes: Staff review happens outside the onboarding area.
+    affordances: {}
+layout:
+  nodes:
+    onb_team: {x: 0, y: 0}
+    onb_policies: {x: 520, y: 0}
+    review: {x: 1040, y: 0}

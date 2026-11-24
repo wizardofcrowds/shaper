@@ -8,7 +8,9 @@ export type JsonValue = null | boolean | number | string | JsonValue[] | {
 
 export type Metadata = Record<string, JsonValue>;
 
-export interface Affordance {
+export interface Annotations { tags?: string[]; notes?: string }
+
+export interface Affordance extends Annotations {
   kind: 'action' | 'input' | 'copy' | 'capability' | 'event';
   label: string;
   connections?: Record<string, Connection>;
@@ -26,7 +28,7 @@ export interface Association {
   metadata?: Metadata;
 }
 
-export interface BreadboardNode {
+export interface BreadboardNode extends Annotations {
   kind: 'place' | 'component';
   label: string;
   color?: NodeColor;
@@ -44,6 +46,7 @@ export interface Connection {
   kind: 'navigate' | 'detour' | 'invoke' | 'emit' | 'read' | 'write';
   /** Presence means navigation requires login; via may be left undecided while shaping. */
   login?: { via?: string };
+  notes?: string;
   label?: string;
   metadata?: Metadata;
 }

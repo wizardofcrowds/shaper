@@ -261,3 +261,34 @@ elements. Reloading opens All areas.
 Rename or delete areas centrally in **Manage areas**. Deleting an area leaves its
 residents Unassigned and keeps their data, positions and connections; Undo restores
 the definition and membership. Areas have no spatial regions or drag-to-assign behavior.
+
+### Tags, editable notes, and read-only metadata
+
+Place/component and affordance inspectors have **Tags** and **Notes** fields.
+Enter a tag and press Enter or choose **Add**; remove it with its chip's **×**.
+Suggestions come from tags already used anywhere in the file. Tags retain their
+order and optional prefixes, for example `role:lms_admin` or `needs-review`.
+Invalid names and duplicates show a validation message. **Notes** is a multiline
+field, also available on connections; edits commit on blur and support Undo/Redo.
+Whitespace-only notes are omitted when saving.
+
+The collapsible **Metadata** section shows extraction context read-only. Strings
+are plain text, simple lists are comma-separated, and nested objects are indented.
+The open/closed preference follows you when selecting another element. Metadata
+is also visible on data elements, associations and areas when present. Human notes
+remain distinct from any code-generated `metadata.notes`.
+
+The canvas shows muted tag chips beneath headings and affordance labels. **ⓘ**
+marks a note on a heading, affordance row or connection label; hover for the note.
+Tags change node height and arrow attachments using the shared geometry helpers.
+
+The **Tag** selector beside **Area** filters places/components by their own tags.
+Its options are grouped by prefix, followed by tags without a prefix. Area and tag
+filters combine with AND. Filtering never changes YAML; saving still writes all
+nodes, annotations and connections, including hidden elements. Outside-view
+connections remain discoverable in the boundary panel. Tag filters reset when
+opening another document; a new element clears a tag filter so it remains visible
+without inheriting tags or permissions. Its active area is still inherited.
+
+Try **Onboarding context** in Examples. Common-tag suppression and global tag
+renaming are deferred; every stored tag is shown and preserved in this version.

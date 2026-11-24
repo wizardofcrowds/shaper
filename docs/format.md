@@ -314,3 +314,72 @@ a collision-safe `metadata.legacy_regions` key. Places, components, positions,
 data, scenarios, connections, and routes are unchanged. A subsequent save writes
 only the current area model. The writer and current JSON Schema reject retired
 fields; they cannot be introduced into new documents.
+
+## Tags, notes, and extracted metadata
+
+Places, components and affordances may carry optional first-class `tags` and
+`notes` alongside their `kind` and `label`. Connections may carry `notes`, but
+not tags. These fields are not supported on areas, data elements or associations.
+
+```yaml
+onb_team:
+  kind: place
+  label: Onboarding · Team
+  tags: [role:lms_admin, role:employer_hr, needs-review]
+  notes: |
+    Should Payroll be able to invite people here?
+  metadata:
+    source: src/pages/HrOnboarding.tsx:722
+    roles: [lms_admin, employer_hr]
+  affordances:
+    continue:
+      kind: action
+      label: Continue
+      tags: [role:lms_admin]
+      notes: Confirm the next place with the product owner.
+      connections:
+        policies:
+          kind: navigate
+          to: policies
+          notes: Only after team setup is complete.
+```
+
+Tags are an ordered list of unique, nonblank strings matching
+`^[a-z0-9_-]+(?::[a-z0-9_-]+)?$`. Letters are lowercase; spaces, uppercase and
+multiple colons are rejected. Inspector input trims outer whitespace before
+adding a tag. The parser and writer validate rather than rewriting tags, and
+preserve their order and prefixes exactly. Prefixes group filter options only;
+they imply no permissions, inheritance or application behavior. Tag filtering
+matches a place/component's own tags; affordance tags are displayed on their rows
+and do not cause the parent to match a filter.
+
+Notes are free-text strings, including multiple lines. The writer omits notes
+that are empty or entirely whitespace, without mutating its input. It preserves
+all text and indentation of nonblank notes. This applies only to first-class
+notes: `metadata.notes` and every other metadata value remain unchanged. Existing
+files without tags or notes remain valid at version `0.1`.
+
+`metadata` is preserved as extraction/source context and shown read-only in the
+inspector. It is never automatically promoted into editable notes or tags. Import
+scripts may own selected tag prefixes, metadata and other fields, but Shaper does
+not enforce importer-specific ownership policies.
+
+### Shared sizing for importers
+
+Use the browser-independent `shaper/geometry` export (or `src/geometry.ts` when
+working directly from the repository) to position imported nodes:
+
+```ts
+import { nodeHeight, affordanceY, dataRowY, NODE_WIDTH } from 'shaper/geometry';
+```
+
+`nodeHeight(node)` includes node tags, affordance tags, data elements and embedded
+attributes. `affordanceY(node, id)` and `dataRowY(node, id)` are local attachment
+coordinates; add the node's layout y position to obtain canvas coordinates.
+For nodes without tags, the original dimensions remain: header 84, affordance
+rows 48, attribute rows 28, and bottom padding 12. Node chip rows add 22 each;
+affordance chip rows add 18 each. `tagRows` and `tagChipWidth` calculate explicit
+chip packing with a 4-pixel gap, using 276 pixels for node tags and 224 for
+affordance tags. The renderer uses the same packing, so geometry does not depend
+on measuring fonts or on the active filters. Importers should call these helpers
+rather than duplicate the sizing formula.

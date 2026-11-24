@@ -6,6 +6,7 @@ import { hasLegacyGroups, importLegacyGroups, legacyGroupDefinition, legacyGroup
 
 export type * from './model.ts';
 export { NODE_COLORS } from './colors.ts';
+export * from './geometry.ts';
 
 export const MAX_YAML_BYTES = 1_048_576;
 export const MAX_VALUE_DEPTH = 64;
@@ -141,7 +142,16 @@ export function parseBreadboard(text: string): Breadboard {
 /** Validate and write data without losing metadata, scenarios, or layout. */
 export function writeBreadboard(value: unknown): string {
   validateBreadboard(value);
-  const text = stringify(value, {
+  // Omit only whitespace-only first-class notes, without touching metadata or input.
+  const document = structuredClone(value);
+  for (const node of Object.values(document.nodes)) {
+    if (node.notes !== undefined && !node.notes.trim()) delete node.notes;
+    for (const row of Object.values(node.affordances)) {
+      if (row.notes !== undefined && !row.notes.trim()) delete row.notes;
+      for (const edge of Object.values(row.connections ?? {})) if (edge.notes !== undefined && !edge.notes.trim()) delete edge.notes;
+    }
+  }
+  const text = stringify(document, {
     version: '1.2', schema: 'core', indent: 2, lineWidth: 0,
     aliasDuplicateObjects: false,
   });

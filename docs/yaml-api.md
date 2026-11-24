@@ -59,3 +59,11 @@ pnpm test
 
 The tests include both checked-in examples, semantic and stable serialization
 round trips, schema failures, YAML errors, metadata preservation, and input limits.
+
+## Layout helpers
+
+`shaper/geometry` exports `nodeHeight`, `nodeHeaderHeight`, `affordanceHeight`,
+`affordanceY`, `dataHeight`, `dataRowY`, `affordanceIds`, chip packing helpers and
+dimension constants. This module has no browser or tldraw dependency. Use it in
+importers to account for tags and data attributes and to keep arrow endpoints on
+their corresponding rows. See [tag and note sizing](format.md#shared-sizing-for-importers).

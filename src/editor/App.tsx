@@ -1,3 +1,5 @@
+import { AnnotationFields, MetadataView, MetadataVisibility, NotesField } from './Annotations.tsx';
+import { allTags, tagGroups } from '../tags.ts';
 import { AreaManager } from './AreaManager.tsx';
 import { areaNodeIds, areaCrossings, assignArea, UNASSIGNED_AREA } from './areas.ts';
 import { ReferenceSelect } from './ReferenceSelect.tsx';
@@ -13,6 +15,7 @@ import example from '../../examples/two-paths.breadboard.yaml?raw';
 import componentExample from '../../examples/publishing.breadboard.yaml?raw';
 import orderingExample from '../../examples/ordering.breadboard.yaml?raw';
 import loginExample from '../../examples/login.breadboard.yaml?raw';
+import onboardingExample from '../../examples/onboarding.breadboard.yaml?raw';
 import { CanvasInteraction, createController, associationShapeId, edgeShapeId, nodeShapeId, readModel, shapeUtils } from './canvas.tsx';
 import type { CanvasController } from './canvas.tsx';
 import { FileDialog } from './FileDialog.tsx';
@@ -87,6 +90,8 @@ function ConnectionFields({ connection, model, source, onChange }: { connection:
     </>}
     {connection.kind === 'detour' && <p className="help">Visit this place, then return to {model.nodes[source]?.label ?? source} after completion or cancellation, keeping the current task and entered information. Use this for optional member login.</p>}
     <Field label="Connection label (optional)" value={connection.label ?? ''} onCommit={value => onChange(edge => { if (value) edge.label = value; else delete edge.label; })} />
+    <NotesField value={connection.notes} onChange={notes => onChange(edge => { if (notes.trim()) edge.notes = notes; else delete edge.notes; })} />
+    <MetadataView metadata={connection.metadata} />
   </>;
 }
 
@@ -97,9 +102,11 @@ export default function App() {
   const [unlabeledNodes, setUnlabeledNodes] = useState<Set<string>>(() => new Set());
   const [unlabeledAffordances, setUnlabeledAffordances] = useState<Set<string>>(() => new Set());
   const [activeArea, setActiveArea] = useState('');
+  const [activeTag, setActiveTag] = useState('');
+  const [metadataOpen, setMetadataOpen] = useState(false);
   const [areaManagerOpen, setAreaManagerOpen] = useState(false);
-  const areaCameras = useRef(new Map<string, { x: number; y: number; z: number }>());
-  const previousArea = useRef<string | null>(null);
+  const viewCameras = useRef(new Map<string, { x: number; y: number; z: number }>());
+  const previousView = useRef<string | null>(null);
   const areaFocus = useRef<Selection>(null);
   const [pending, setPending] = useState<string | null>(null);
   const [leftCollapsed, setLeftCollapsed] = useState(true);
@@ -125,28 +132,30 @@ export default function App() {
   const canUndo = useValue('can undo', () => editor?.getCanUndo() ?? false, [editor]);
   const canRedo = useValue('can redo', () => editor?.getCanRedo() ?? false, [editor]);
   const areaFilter = activeArea && activeArea !== UNASSIGNED_AREA && !Object.hasOwn(model.areas ?? {}, activeArea) ? '' : activeArea;
-  const visibleNodes = useMemo(() => areaNodeIds(model, areaFilter), [model, areaFilter]);
-  const crossings = useMemo(() => areaCrossings(model, areaFilter), [model, areaFilter]);
+  const fileTags = useMemo(() => allTags(model), [model]);
+  const visibleNodes = useMemo(() => areaNodeIds(model, areaFilter, activeTag), [model, areaFilter, activeTag]);
+  const crossings = useMemo(() => areaCrossings(model, areaFilter, activeTag), [model, areaFilter, activeTag]);
   useEffect(() => {
     if (!editor || !controller.current) return;
-    if (previousArea.current !== null) areaCameras.current.set(previousArea.current, editor.getCamera());
-    controller.current.setArea(areaFilter);
+    if (previousView.current !== null) viewCameras.current.set(previousView.current, editor.getCamera());
+    controller.current.setView(areaFilter, activeTag);
     editor.selectNone(); setSelection(null); setPending(null);
-    const camera = areaCameras.current.get(areaFilter);
+    const viewKey = JSON.stringify([areaFilter, activeTag]);
+    const camera = viewCameras.current.get(viewKey);
     if (camera) editor.setCamera(camera, { animation: { duration: 0 } });
     else editor.zoomToFit({ animation: { duration: 0 } });
-    previousArea.current = areaFilter;
+    previousView.current = viewKey;
     const focus = areaFocus.current;
     areaFocus.current = null;
     if (focus) {
       editor.select(focus.type === 'node' ? nodeShapeId(focus.id) : focus.type === 'association' ? associationShapeId(focus.id) : edgeShapeId(focus.id));
       setSelection(focus); setTab('inspect'); setRightCollapsed(false);
     }
-  }, [editor, areaFilter]);
+  }, [editor, areaFilter, activeTag]);
 
   function resetAreaView() {
-    setActiveArea(''); areaCameras.current.clear(); previousArea.current = ''; areaFocus.current = null;
-    controller.current?.setArea('');
+    setActiveArea(''); setActiveTag(''); viewCameras.current.clear(); previousView.current = JSON.stringify(['', '']); areaFocus.current = null;
+    controller.current?.setView('', '');
   }
 
   const graphConnections = useMemo(() => connections(model), [model]);
@@ -192,15 +201,16 @@ export default function App() {
     if (model.nodes[id] && !visibleNodes.has(id)) {
       const area = model.nodes[id]!.area;
       areaFocus.current = { type: 'node', id, ...(row ? { row } : {}) };
+      if (activeTag && !model.nodes[id]!.tags?.includes(activeTag)) setActiveTag('');
       setActiveArea(area && Object.hasOwn(model.areas ?? {}, area) ? area : area ? '' : UNASSIGNED_AREA);
       return;
     }
     editor?.select(nodeShapeId(id));
     setSelection({ type: 'node', id, ...(row ? { row } : {}) });
     setTab('inspect'); setRightCollapsed(false);
-  }, [editor, model, visibleNodes]);
-  const selectAssociation = (id: string) => { if (areaFilter && !editor?.getShape(associationShapeId(id))) { areaFocus.current = { type: 'association', id }; setActiveArea(''); return; } editor?.select(associationShapeId(id)); setSelection({ type: 'association', id }); setTab('inspect'); setRightCollapsed(false); };
-  const selectConnection = (id: string) => { if (areaFilter && !editor?.getShape(edgeShapeId(id))) { areaFocus.current = { type: 'connection', id }; setActiveArea(''); return; } editor?.select(edgeShapeId(id)); setSelection({ type: 'connection', id }); setTab('inspect'); setRightCollapsed(false); };
+  }, [editor, model, visibleNodes, activeTag]);
+  const selectAssociation = (id: string) => { if ((areaFilter || activeTag) && !editor?.getShape(associationShapeId(id))) { areaFocus.current = { type: 'association', id }; setActiveArea(''); setActiveTag(''); return; } editor?.select(associationShapeId(id)); setSelection({ type: 'association', id }); setTab('inspect'); setRightCollapsed(false); };
+  const selectConnection = (id: string) => { if ((areaFilter || activeTag) && !editor?.getShape(edgeShapeId(id))) { areaFocus.current = { type: 'connection', id }; setActiveArea(''); setActiveTag(''); return; } editor?.select(edgeShapeId(id)); setSelection({ type: 'connection', id }); setTab('inspect'); setRightCollapsed(false); };
   const update = (next: Breadboard) => {
     try { controller.current?.update(next); setNotice(null); }
     catch (error) { setNotice({ text: errorText(error), error: true }); }
@@ -264,7 +274,9 @@ export default function App() {
     const center = editor.getViewportPageBounds().center;
     const result = addNode(model, kind, { x: Math.round(center.x - 150), y: Math.round(center.y - 70) });
     if (areaFilter && areaFilter !== UNASSIGNED_AREA) result.model.nodes[result.id]!.area = areaFilter;
+    if (activeTag) { controller.current?.setView(areaFilter, ''); setActiveTag(''); areaFocus.current = { type: 'node', id: result.id }; }
     update(result.model);
+    if (activeTag) setNotice({ text: 'Tag filter cleared to show the new element.' });
     setUnlabeledNodes(previous => new Set(previous).add(result.id));
     selectNode(result.id);
   }
@@ -317,7 +329,9 @@ export default function App() {
   const associationComponentId = association?.from.split('.')[0];
   const associationComponent = associationComponentId ? model.nodes[associationComponentId] : undefined;
 
-  return <div className="app-shell">
+  const annotationFields = node && selection?.type === 'node' ? <AnnotationFields key={`annotations:${selection.id}:${selection.row ?? ''}`} element={row ?? node} suggestions={fileTags} onChange={change => edit(next => change(selection.row ? next.nodes[selection.id]!.affordances[selection.row]! : next.nodes[selection.id]!))} /> : null;
+
+  return <MetadataVisibility.Provider value={{ open: metadataOpen, setOpen: setMetadataOpen }}><div className="app-shell">
     <header className="app-header">
       <div className="brand"><span className="brand-mark">s</span><span>shaper</span><span className="workspace-divider" /><span className="workspace-kind">Breadboard</span></div>
       <div className="file-tools">
@@ -354,7 +368,7 @@ export default function App() {
           </button>)}
         </div>
         <div className="add-buttons"><button onClick={() => createNode('place')}><Icon name="plus" />Place</button><button onClick={() => createNode('component')}><Icon name="plus" />Component</button></div>
-        <div className="navigator-footer"><span>EXAMPLES</span><button disabled={fileBusy} onClick={() => replaceDocument(example, 'two-paths.breadboard.yaml')}>Two paths from Home ↗</button><button disabled={fileBusy} onClick={() => replaceDocument(componentExample, 'publishing.breadboard.yaml')}>Component interaction ↗</button><button disabled={fileBusy} onClick={() => replaceDocument(orderingExample, 'ordering.breadboard.yaml')}>Order and line items ↗</button><button disabled={fileBusy} onClick={() => replaceDocument(loginExample, 'login.breadboard.yaml')}>Login and detours ↗</button></div>
+        <div className="navigator-footer"><span>EXAMPLES</span><button disabled={fileBusy} onClick={() => replaceDocument(example, 'two-paths.breadboard.yaml')}>Two paths from Home ↗</button><button disabled={fileBusy} onClick={() => replaceDocument(componentExample, 'publishing.breadboard.yaml')}>Component interaction ↗</button><button disabled={fileBusy} onClick={() => replaceDocument(orderingExample, 'ordering.breadboard.yaml')}>Order and line items ↗</button><button disabled={fileBusy} onClick={() => replaceDocument(loginExample, 'login.breadboard.yaml')}>Login and detours ↗</button><button disabled={fileBusy} onClick={() => replaceDocument(onboardingExample, 'onboarding.breadboard.yaml')}>Onboarding context ↗</button></div>
       </aside>
 
       <section className="canvas-region" aria-label="Breadboard canvas">
@@ -367,6 +381,11 @@ export default function App() {
         {Object.entries(model.areas ?? {}).map(([id, area]) => <option key={id} value={id}>{area.label}</option>)}
       </select></label>
       <button disabled={fileBusy} onClick={() => setAreaManagerOpen(true)}>Manage areas</button>
+      <label>Tag <select aria-label="Tag filter" title="Filter places and components by their own tags" value={activeTag} onChange={event => { areaFocus.current = null; setActiveTag(event.target.value); }}>
+        <option value="">All tags</option>
+        {activeTag && !fileTags.includes(activeTag) && <option value={activeTag}>{activeTag} (unused)</option>}
+        {tagGroups(fileTags).map(group => <optgroup label={group.label} key={group.label}>{group.tags.map(tag => <option value={tag} key={tag}>{tag}</option>)}</optgroup>)}
+      </select></label>
     </div>
         </div>}
         {pending && <div className="connect-banner"><span>Connect <strong>{endpointLabel(model, pending)}</strong> · choose a heading or affordance</span><button onClick={() => setPending(null)}>Cancel</button></div>}
@@ -380,9 +399,9 @@ export default function App() {
             return () => { canvas.dispose(); controller.current = null; };
           }} />
         </CanvasInteraction.Provider>
-        {areaFilter && !visibleNodes.size && <p className="empty-area-message">No residents here yet. Create a place or component, or assign existing elements in their Area selector.</p>}
+        {(areaFilter || activeTag) && !visibleNodes.size && <p className="empty-area-message">No places or components match this view. Change the area or tag filter, or create an element.</p>}
         {crossings.length > 0 && <details className="area-boundary-panel" open>
-          <summary>Outside this area · {crossings.length} connections</summary>
+          <summary>Outside this {activeTag ? 'view' : 'area'} · {crossings.length} connections</summary>
           <div>{crossings.map(crossing => {
             const outsideId = crossing.outside.split('.')[0]!, outside = model.nodes[outsideId];
             const refLabel = (ref: string) => { const [id, row] = ref.split('.'); const node = model.nodes[id!]; return node ? `${node.label}${row ? ` / ${node.affordances[row]?.label ?? node.data?.[row]?.label ?? row}` : ''}` : `${ref} (missing)`; };
@@ -422,6 +441,7 @@ export default function App() {
                 next.nodes[selection.id]!.affordances[selection.row!]!.label = value;
                 setUnlabeledAffordances(previous => { const updated = new Set(previous); updated.delete(`${selection.id}.${selection.row}`); return updated; });
               })} multiline />
+              {annotationFields}
               <label className="field"><span>Affordance kind</span><select value={row.kind} onChange={event => edit(next => { next.nodes[selection.id]!.affordances[selection.row!]!.kind = event.target.value as Affordance['kind']; })}>{affordanceKinds.map(kind => <option key={kind}>{kind}</option>)}</select></label>
               <div className="section-heading"><h3>Outgoing connections</h3></div>
               <p className="help">Each path starts from this affordance.</p>
@@ -450,6 +470,7 @@ export default function App() {
                 next.nodes[selection.id]!.label = value;
                 setUnlabeledNodes(previous => { const updated = new Set(previous); updated.delete(selection.id); return updated; });
               })} multiline />
+              {annotationFields}
               <label className="field"><span>Node kind</span><select value={node.kind} onChange={event => edit(next => { next.nodes[selection.id]!.kind = event.target.value as BreadboardNode['kind']; if (event.target.value === 'place') delete next.nodes[selection.id]!.data; })}><option value="place" disabled={Boolean(Object.keys(node.data ?? {}).length)}>Place</option><option value="component">Component</option></select></label>
               <label className="field"><span>Area</span><select aria-label="Area" value={node.area ?? ''} onChange={event => update(assignArea(model, selection.id, event.target.value || null))}>
                 <option value="">Unassigned</option>
@@ -516,5 +537,5 @@ export default function App() {
       try { const next = withLayout(parseBreadboard(yamlDraft)); controller.current?.update(next); editor?.selectNone(); setYamlDraft(null); setPending(null); setSelection(null); setNotice(null); }
       catch (error) { setNotice({ text: errorText(error), error: true }); }
     }}>Apply YAML</button></div></section></div>}
-  </div>;
+  </div></MetadataVisibility.Provider>;
 }

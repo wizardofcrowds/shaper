@@ -1,10 +1,8 @@
 import { associationFindings } from './data.ts';
-import type { Breadboard, BreadboardNode, DataElement, Connection } from '../model.ts';
+import type { Breadboard, BreadboardNode, Connection } from '../model.ts';
 
-export const NODE_WIDTH = 300;
-export const HEADER_HEIGHT = 84;
-export const ROW_HEIGHT = 48;
-export const ATTRIBUTE_HEIGHT = 28;
+import { NODE_WIDTH, ROW_HEIGHT, nodeHeight, affordanceIds, affordanceY } from '../geometry.ts';
+export * from '../geometry.ts';
 export interface Position { x: number; y: number }
 export interface Finding { severity: 'error' | 'warning' | 'info'; message: string; ref: string }
 
@@ -12,28 +10,6 @@ export function uniqueId(existing: object, base: string): string {
   let id = base;
   for (let index = 2; Object.hasOwn(existing, id); index++) id = `${base}_${index}`;
   return id;
-}
-
-export function nodeHeight(node: BreadboardNode): number {
-  return HEADER_HEIGHT + Math.max(1, Object.keys(node.affordances).length) * ROW_HEIGHT + Object.values(node.data ?? {}).reduce((height, element) => height + dataHeight(element), 0) + 12;
-}
-
-export function dataHeight(element: DataElement): number {
-  return ROW_HEIGHT + (element.attributes?.length ?? 0) * ATTRIBUTE_HEIGHT;
-}
-
-/** Association endpoints stay on data headers, even when preceding elements grow. */
-export function dataRowY(node: BreadboardNode, id: string): number {
-  const keys = Object.keys(node.data ?? {}).sort();
-  return HEADER_HEIGHT + Math.max(1, Object.keys(node.affordances).length) * ROW_HEIGHT
-    + keys.slice(0, keys.indexOf(id)).reduce((height, key) => height + dataHeight(node.data![key]!), 0)
-    + ROW_HEIGHT / 2;
-}
-
-/** Missing display order falls back to mapping order. */
-export function affordanceIds(node: BreadboardNode): string[] {
-  return [...new Set([...(node.affordance_order ?? []), ...Object.keys(node.affordances)])]
-    .filter(id => Object.hasOwn(node.affordances, id));
 }
 
 /** Fill only absent positions; retain all source fields and dangling layout entries. */
@@ -185,7 +161,7 @@ export function edgeGeometry(model: Breadboard): EdgeGeometry[] {
     const [targetId, targetRow] = connection.to.split('.') as [string, string | undefined];
     const source = positions[sourceId], target = positions[targetId];
     if (!source || !target) return [];
-    const rowY = (nodeId: string, row: string) => HEADER_HEIGHT + affordanceIds(model.nodes[nodeId]!).indexOf(row) * ROW_HEIGHT + ROW_HEIGHT / 2;
+    const rowY = (nodeId: string, row: string) => affordanceY(model.nodes[nodeId]!, row);
     const sx = source.x + NODE_WIDTH + 5;
     const sy = source.y + rowY(sourceId, sourceRow);
     const backwards = target.x <= source.x;

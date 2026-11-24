@@ -1,3 +1,4 @@
+import { MetadataView } from './Annotations.tsx';
 import { useState } from 'react';
 import type { Association, Breadboard, Cardinality } from '../model.ts';
 import { Field } from './Field.tsx';
@@ -31,6 +32,7 @@ export function AssociationFields({ model, id, onChange }: { model: Breadboard; 
         <option value="">Unspecified</option><option value="1">One (1)</option><option value="0..1">Zero or one (0..1)</option><option value="0..*">Many (0..*)</option><option value="1..*">One or more (1..*)</option>
       </select>
     </label>)}
+    <MetadataView metadata={association.metadata} />
     <p className="help">Cardinalities describe each end: Order (1) — LineItem (many) means one order has many line items.</p>
   </>;
 }
@@ -84,6 +86,7 @@ export function DataPanel({ model, nodeId, onChange, onSelectAssociation }: { mo
       return <section className="data-card" id={`data-element-${ref}`} key={id}>
         <span className="section-eyebrow">DATA</span><code className="semantic-id">{ref}</code>
         <Field label="Data element name" value={entry.label} onCommit={label => { if (!label.trim()) return; const next = structuredClone(model); next.nodes[nodeId]!.data![id]!.label = label; onChange(next); }} />
+        <MetadataView metadata={entry.metadata} />
         <DataAttributes model={model} nodeId={nodeId} dataId={id} onChange={onChange} />
         {Object.entries(model.associations ?? {}).filter(([, association]) => association.from === ref || association.to === ref).map(([key, association]) => <button className="inspector-row" key={key} onClick={() => onSelectAssociation(key)}>
           <span>{association.label || 'Association'} · {elements.find(element => element.id === (association.from === ref ? association.to : association.from))?.label ?? '(missing data element)'}</span><small>{association.from_cardinality ?? '?'} — {association.to_cardinality ?? '?'}</small>
